@@ -141,6 +141,24 @@ function rankTier(rank) {
   return "tier-cold";
 }
 
+function pluralVariantsRu(n) {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return "вариант";
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return "варианта";
+  return "вариантов";
+}
+
+function perNickVariantCounts() {
+  const counts = new Map();
+  for (const g of state.guesses) {
+    if (g.tip || !g.nick) continue;
+    const nick = g.nick;
+    counts.set(nick, (counts.get(nick) || 0) + 1);
+  }
+  return counts;
+}
+
 function rowEl(g, num, opts = {}) {
   const TOTAL = 50000;
   const closeness = Math.max(
@@ -167,7 +185,9 @@ function rowEl(g, num, opts = {}) {
   el.querySelector(".word").textContent = g.word;
   const nickEl = el.querySelector(".nick");
   if (g.nick) {
-    nickEl.textContent = "@" + g.nick;
+    const total = opts.nickCounts?.get(g.nick) ?? 1;
+    nickEl.textContent = "@" + g.nick + " · " + fmtInt(total);
+    nickEl.title = `${fmtInt(total)} ${pluralVariantsRu(total)} за раунд`;
   } else {
     nickEl.hidden = true;
   }
@@ -177,10 +197,14 @@ function rowEl(g, num, opts = {}) {
 function render({ freshWord } = {}) {
   const list = $("#guesses");
   list.innerHTML = "";
+  const nickCounts = perNickVariantCounts();
   const sorted = [...state.guesses].sort((a, b) => a.rank - b.rank);
   sorted.forEach((g, i) => {
     list.appendChild(
-      rowEl(g, i + 1, { fresh: freshWord && g.word === freshWord })
+      rowEl(g, i + 1, {
+        fresh: freshWord && g.word === freshWord,
+        nickCounts,
+      })
     );
   });
 
@@ -189,7 +213,7 @@ function render({ freshWord } = {}) {
   if (freshWord) {
     const g = state.guesses.find((x) => x.word === freshWord);
     if (g) {
-      const el = rowEl(g, "·");
+      const el = rowEl(g, "·", { nickCounts });
       el.classList.add("fresh");
       last.appendChild(el);
     }
