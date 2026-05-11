@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>контекст</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Roboto:wght@400;500;700;900&display=swap"
+    />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main class="game">
+      <header class="header">
+        <h1 class="title">КОНТЕКСТ</h1>
+        <div class="header-actions">
+          <button id="random-btn" class="btn btn-outline" type="button">
+            случайная
+          </button>
+          <button id="custom-btn" class="btn btn-outline" type="button">
+            загадать своё
+          </button>
+        </div>
+      </header>
+
+      <form class="twitch" id="twitch-form" autocomplete="off">
+        <span
+          id="twitch-led"
+          class="twitch-led"
+          aria-hidden="true"
+          title="не подключено"
+        ></span>
+        <input
+          id="twitch-channel"
+          class="input twitch-input"
+          type="text"
+          placeholder="канал twitch"
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+          aria-label="канал twitch"
+        />
+        <button id="twitch-btn" class="btn btn-outline" type="submit">
+          подключить
+        </button>
+      </form>
+
+      <section class="status" id="status">загрузка...</section>
+
+      <section class="counters" id="counters" hidden>
+        <span><b id="counter-guesses">0</b>&nbsp;попыток</span>
+        <span><b id="counter-tips">0</b>&nbsp;подсказок</span>
+      </section>
+
+      <form class="secret-form" id="secret-form" hidden autocomplete="off">
+        <input
+          id="secret-input"
+          class="input input-secret"
+          type="text"
+          inputmode="text"
+          placeholder="введите своё слово"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          name="contextno-secret"
+          data-1p-ignore="true"
+          data-lpignore="true"
+          data-form-type="other"
+          aria-label="секретное слово"
+        />
+        <button class="btn btn-solid" type="submit">старт</button>
+        <button class="btn btn-outline" type="button" id="secret-cancel">
+          отмена
+        </button>
+      </form>
+
+      <section class="game-actions" id="game-actions" hidden>
+        <button id="tip-btn" class="btn btn-outline" type="button">подсказка</button>
+        <button id="give-up-btn" class="btn btn-ghost" type="button">сдаться</button>
+        <button id="restart-btn" class="btn btn-solid" type="button" hidden>
+          ещё раз
+        </button>
+      </section>
+
+      <form class="input-row" id="guess-form" hidden autocomplete="off">
+        <input
+          id="guess-input"
+          class="input"
+          type="text"
+          placeholder="ваш вариант"
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+        />
+        <button
+          id="guess-submit"
+          class="btn btn-solid icon-btn"
+          type="submit"
+          aria-label="отправить"
+        >
+          →
+        </button>
+      </form>
+
+      <section class="last-guess" id="last-guess" aria-live="polite"></section>
+      <section class="guesses" id="guesses"></section>
+
+      <footer class="footer">
+        используем API
+        <a
+          class="footer-link"
+          href="https://xn--e1ajbkccewgd.xn--p1ai/"
+          target="_blank"
+          rel="noopener noreferrer"
+          >контексно.рф</a
+        >
+      </footer>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
