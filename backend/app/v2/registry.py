@@ -5,7 +5,13 @@ import threading
 from dataclasses import dataclass
 from typing import Callable
 
-from .embedder import Embedder, NavecEmbedder, RusVectoresEmbedder
+from .embedder import (
+    Embedder,
+    NavecEmbedder,
+    NAVEC_LEMMA_CACHE_PATH,
+    RUSVECTORES_LEMMA_CACHE_PATH,
+    RusVectoresEmbedder,
+)
 from .secrets import build_secret_pool
 
 
@@ -22,6 +28,19 @@ _FACTORIES: dict[str, Callable[[], Embedder]] = {
     "navec": NavecEmbedder,
     "rusvectores": RusVectoresEmbedder,
 }
+
+_LEMMA_CACHE_PATHS: dict[str, str] = {
+    "navec": NAVEC_LEMMA_CACHE_PATH,
+    "rusvectores": RUSVECTORES_LEMMA_CACHE_PATH,
+}
+
+
+def _count_cache_lines(path: str) -> int | None:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return sum(1 for line in f if line.strip())
+    except OSError:
+        return None
 
 
 class BackendRegistry:
@@ -62,12 +81,16 @@ class BackendRegistry:
             self._bundles[name] = bundle
             return bundle
 
-    def info(self) -> list[dict]:
-        out = []
+    def info(self) -> list[dict[str, object]]:
+        out: list[dict[str, object]] = []
         for name in _FACTORIES:
             bundle = self._bundles.get(name)
             if bundle is None:
-                out.append({"id": name, "loaded": False})
+                size = _count_cache_lines(_LEMMA_CACHE_PATHS.get(name, ""))
+                entry: dict[str, object] = {"id": name, "loaded": False}
+                if size is not None:
+                    entry["vocab_size"] = size
+                out.append(entry)
             else:
                 out.append(
                     {

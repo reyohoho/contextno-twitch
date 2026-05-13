@@ -6,9 +6,9 @@ const TWITCH_CHANNEL_KEY = "contextnorf:twitch_channel";
 const SOURCE_KEY = "contextnorf:source";
 
 const SOURCES = {
-  contextno: { label: "Модель: контексно.рф", desc: "внешнее API" },
-  navec: { label: "Модель: локальная Navec", desc: "~90k слов" },
-  rusvectores: { label: "Модель: локальная RusVectores", desc: "~90k слов" },
+  contextno: { label: "Модель: контексно.рф" },
+  navec: { label: "Модель: локальная Navec" },
+  rusvectores: { label: "Модель: локальная RusVectores" },
 };
 const DEFAULT_SOURCE = "contextno";
 
@@ -588,6 +588,26 @@ function renderSourcePicker() {
   }
 }
 
+async function refreshBackendsInfo() {
+  let data;
+  try {
+    data = await api("/v2/backends");
+  } catch (_) {
+    return;
+  }
+  const map = new Map();
+  for (const b of data.backends || []) map.set(b.id, b);
+  for (const card of $$(".source-card")) {
+    const id = card.dataset.source;
+    const info = map.get(id);
+    if (!info || typeof info.vocab_size !== "number") continue;
+    const desc = card.querySelector(".source-card-desc");
+    if (!desc) continue;
+    const meta = id === "rusvectores" ? " · НКРЯ" : "";
+    desc.textContent = `${fmtInt(info.vocab_size)} существительных${meta}`;
+  }
+}
+
 function setSource(source) {
   if (!SOURCES[source] || source === state.source) return;
   state.source = source;
@@ -599,6 +619,7 @@ function setSource(source) {
 (function init() {
   state.source = getSavedSource();
   renderSourcePicker();
+  refreshBackendsInfo();
   for (const card of $$(".source-card")) {
     card.addEventListener("click", () => setSource(card.dataset.source));
   }

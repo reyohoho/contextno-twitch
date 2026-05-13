@@ -17,7 +17,7 @@ NAVEC_LEMMA_CACHE_PATH = os.path.join(DATA_DIR, "navec_lemmas.txt")
 RUSVECTORES_PATH = os.path.join(DATA_DIR, "rusvectores_ruscorpora.bin")
 RUSVECTORES_LEMMA_CACHE_PATH = os.path.join(DATA_DIR, "rusvectores_lemmas.txt")
 
-RUSVECTORES_ALLOWED_POS = ("NOUN", "VERB", "ADJ", "ADV")
+RUSVECTORES_ALLOWED_POS = ("NOUN",)
 
 _CYRILLIC_RE = re.compile(r"^[а-яё-]+$")
 _MIN_LEN = 2
@@ -32,9 +32,10 @@ def _is_clean_lemma(word: str, morph) -> bool:
     lemma_parses = [p for p in parses if p.normal_form == word]
     if not lemma_parses:
         return False
-    return any(
-        not any(t in p.tag for t in _BAD_TAGS) for p in lemma_parses
-    )
+    good = [p for p in lemma_parses if not any(t in p.tag for t in _BAD_TAGS)]
+    if not good:
+        return False
+    return any(p.tag.POS == "NOUN" for p in good)
 
 
 def _l2_normalize(m: np.ndarray) -> np.ndarray:
