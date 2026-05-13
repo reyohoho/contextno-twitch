@@ -3,16 +3,34 @@
 const API = "/api";
 const AUTHOR_ID_KEY = "contextnorf:author_id";
 const TWITCH_CHANNEL_KEY = "contextnorf:twitch_channel";
+const SOURCE_KEY = "contextnorf:source";
+
+const SOURCES = {
+  contextno: { label: "Модель: контексно.рф", desc: "внешнее API" },
+  navec: { label: "Модель: локальная Navec", desc: "~90k слов" },
+  rusvectores: { label: "Модель: локальная RusVectores", desc: "~90k слов" },
+};
+const DEFAULT_SOURCE = "contextno";
 
 const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
 
 const state = {
   game: null,
   guesses: [],
   won: false,
   tipsUsed: 0,
+  source: DEFAULT_SOURCE,
   twitch: { ws: null, channel: null, status: "disconnected" },
 };
+
+function isLocalSource(source = state.source) {
+  return source === "navec" || source === "rusvectores";
+}
+
+function gamesPath() {
+  return isLocalSource() ? "/v2/games" : "/games";
+}
 
 function uuidv4() {
   if (window.crypto && typeof crypto.randomUUID === "function") {
@@ -236,9 +254,15 @@ async function startGame({ secret = null } = {}) {
   resetBoard();
   setStatus(secret ? "публикация..." : "новая случайная игра...");
   try {
-    const body = { mode: "random", secret };
-    if (secret) body.author_id = getAuthorId();
-    const data = await api("/games", {
+    let body;
+    if (isLocalSource()) {
+      body = { backend: state.source };
+      if (secret) body.secret = secret;
+    } else {
+      body = { mode: "random", secret };
+      if (secret) body.author_id = getAuthorId();
+    }
+    const data = await api(gamesPath(), {
       method: "POST",
       body: JSON.stringify(body),
     });
@@ -250,6 +274,12 @@ async function startGame({ secret = null } = {}) {
       setStatus("игра началась");
     } else if (data.challenge && data.challenge.name) {
       setStatus(`${data.challenge.name} (${data.challenge.challenge_type})`);
+    } else if (isLocalSource()) {
+      const label = SOURCES[state.source].label;
+      const vocab = data.vocab_size
+        ? ` · словарь ${fmtInt(data.vocab_size)}`
+        : "";
+      setStatus(`${label}${vocab}`);
     } else {
       setStatus("игра началась");
     }
@@ -268,7 +298,7 @@ async function sendGuess(word, nick = null) {
   if (state.guesses.some((g) => g.word === word && !g.tip)) return;
 
   try {
-    const r = await api(`/games/${state.game.game_id}/guess`, {
+    const r = await api(`${gamesPath()}/${state.game.game_id}/guess`, {
       method: "POST",
       body: JSON.stringify({ word }),
     });
@@ -308,7 +338,7 @@ function submitGuess(ev) {
 async function getTip() {
   if (!state.game || state.won) return;
   try {
-    const r = await api(`/games/${state.game.game_id}/tip`, { method: "POST" });
+    const r = await api(`${gamesPath()}/${state.game.game_id}/tip`, { method: "POST" });
     if (r.error) {
       setStatus(r.error, "error");
       return;
@@ -326,7 +356,7 @@ async function giveUp() {
   if (!state.game || state.won) return;
   if (!confirm("сдаёмся?")) return;
   try {
-    const r = await api(`/games/${state.game.game_id}/give-up`, {
+    const r = await api(`${gamesPath()}/${state.game.game_id}/give-up`, {
       method: "POST",
     });
     state.won = true;
@@ -536,7 +566,43 @@ function saveChannel(channel) {
   } catch (_) {}
 }
 
+function getSavedSource() {
+  let s;
+  try {
+    s = localStorage.getItem(SOURCE_KEY);
+  } catch (_) {}
+  return SOURCES[s] ? s : DEFAULT_SOURCE;
+}
+
+function saveSource(source) {
+  try {
+    localStorage.setItem(SOURCE_KEY, source);
+  } catch (_) {}
+}
+
+function renderSourcePicker() {
+  for (const card of $$(".source-card")) {
+    const selected = card.dataset.source === state.source;
+    card.classList.toggle("selected", selected);
+    card.setAttribute("aria-pressed", selected ? "true" : "false");
+  }
+}
+
+function setSource(source) {
+  if (!SOURCES[source] || source === state.source) return;
+  state.source = source;
+  saveSource(source);
+  renderSourcePicker();
+  startGame();
+}
+
 (function init() {
+  state.source = getSavedSource();
+  renderSourcePicker();
+  for (const card of $$(".source-card")) {
+    card.addEventListener("click", () => setSource(card.dataset.source));
+  }
+
   $("#random-btn").addEventListener("click", () => startGame());
 
   $("#custom-btn").addEventListener("click", () => {

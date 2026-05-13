@@ -13,18 +13,20 @@ from .contextno import (
     resolve_challenge,
 )
 from .game import GameStore
+from .v2.routes import router as v2_router
 
 
 client = ContextnoClient()
 store = GameStore()
 
-app = FastAPI(title="contextnorf-backend", version="1.0.0")
+app = FastAPI(title="contextnorf-backend", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(v2_router)
 
 
 class CreateGameBody(BaseModel):

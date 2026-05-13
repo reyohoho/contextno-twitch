@@ -24,7 +24,7 @@ VALID_MODES = {"random", "latest"}
 
 
 class WordNotFoundError(ValueError):
-    """Слово не поддержано словарём contextno API."""
+    pass
 
 
 class ContextnoClient:
@@ -189,7 +189,6 @@ def resolve_challenge(
     challenge_id: Optional[str] = None,
     author_id: Optional[str] = None,
 ) -> dict:
-    """Получить challenge dict для новой игры."""
     if secret and challenge_id:
         raise ValueError("укажите либо secret, либо challenge_id, не оба")
 
