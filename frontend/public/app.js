@@ -586,6 +586,8 @@ function renderSourcePicker() {
     card.classList.toggle("selected", selected);
     card.setAttribute("aria-pressed", selected ? "true" : "false");
   }
+  const credit = $("#contextno-credit");
+  if (credit) credit.hidden = state.source !== "contextno";
 }
 
 async function refreshBackendsInfo() {
