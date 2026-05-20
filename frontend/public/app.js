@@ -6,7 +6,7 @@ const TWITCH_CHANNEL_KEY = "contextnorf:twitch_channel";
 const SOURCE_KEY = "contextnorf:source";
 
 const SOURCES = {
-  contextno: { label: "Модель: контексно.рф" },
+  contextno: { label: "Модель: контекстно.рф" },
   navec: { label: "Модель: локальная Navec" },
   rusvectores: { label: "Модель: локальная RusVectores" },
 };
