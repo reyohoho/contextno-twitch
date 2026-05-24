@@ -4,6 +4,9 @@ const API = "/api";
 const AUTHOR_ID_KEY = "contextnorf:author_id";
 const TWITCH_CHANNEL_KEY = "contextnorf:twitch_channel";
 const SOURCE_KEY = "contextnorf:source";
+const HANDS_OFF_KEY = "contextnorf:hands_off";
+
+const HANDS_OFF_DELAY = 10;
 
 const SOURCES = {
   contextno: { label: "Модель: контекстно.рф" },
@@ -22,6 +25,8 @@ const state = {
   tipsUsed: 0,
   source: DEFAULT_SOURCE,
   twitch: { ws: null, channel: null, status: "disconnected" },
+  handsOff: false,
+  autoRestartTimer: null,
 };
 
 function isLocalSource(source = state.source) {
@@ -251,6 +256,7 @@ function upsertGuess(g) {
 }
 
 async function startGame({ secret = null } = {}) {
+  cancelAutoRestart();
   resetBoard();
   setStatus(secret ? "публикация..." : "новая случайная игра...");
   try {
@@ -313,8 +319,10 @@ async function sendGuess(word, nick = null) {
     if (r.won) {
       state.won = true;
       const winner = nick ? ` — ${nick}` : "";
-      setStatus(`угадано: ${r.word} (#1)${winner}`, "win");
+      const winMsg = `угадано: ${r.word} (#1)${winner}`;
+      setStatus(winMsg, "win");
       setMode("over");
+      if (state.handsOff) scheduleAutoRestart(winMsg);
     } else {
       const author = nick ? ` (${nick})` : "";
       setStatus(
@@ -580,6 +588,57 @@ function saveSource(source) {
   } catch (_) {}
 }
 
+function getSavedHandsOff() {
+  try {
+    return localStorage.getItem(HANDS_OFF_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function saveHandsOff(enabled) {
+  try {
+    if (enabled) localStorage.setItem(HANDS_OFF_KEY, "1");
+    else localStorage.removeItem(HANDS_OFF_KEY);
+  } catch (_) {}
+}
+
+function renderHandsOffBtn() {
+  const btn = $("#hands-off-btn");
+  if (!btn) return;
+  btn.classList.toggle("active", state.handsOff);
+  btn.setAttribute("aria-pressed", state.handsOff ? "true" : "false");
+}
+
+function cancelAutoRestart() {
+  if (state.autoRestartTimer) {
+    clearInterval(state.autoRestartTimer);
+    state.autoRestartTimer = null;
+  }
+}
+
+function scheduleAutoRestart(winStatus) {
+  cancelAutoRestart();
+  let remaining = HANDS_OFF_DELAY;
+  setStatus(`${winStatus} · новая игра через ${remaining} сек`, "win");
+  state.autoRestartTimer = setInterval(() => {
+    remaining -= 1;
+    if (remaining <= 0) {
+      cancelAutoRestart();
+      startGame();
+    } else {
+      setStatus(`${winStatus} · новая игра через ${remaining} сек`, "win");
+    }
+  }, 1000);
+}
+
+function setHandsOff(enabled) {
+  state.handsOff = enabled;
+  saveHandsOff(enabled);
+  renderHandsOffBtn();
+  if (!enabled) cancelAutoRestart();
+}
+
 function renderSourcePicker() {
   for (const card of $$(".source-card")) {
     const selected = card.dataset.source === state.source;
@@ -620,11 +679,15 @@ function setSource(source) {
 
 (function init() {
   state.source = getSavedSource();
+  state.handsOff = getSavedHandsOff();
   renderSourcePicker();
+  renderHandsOffBtn();
   refreshBackendsInfo();
   for (const card of $$(".source-card")) {
     card.addEventListener("click", () => setSource(card.dataset.source));
   }
+
+  $("#hands-off-btn").addEventListener("click", () => setHandsOff(!state.handsOff));
 
   $("#random-btn").addEventListener("click", () => startGame());
 

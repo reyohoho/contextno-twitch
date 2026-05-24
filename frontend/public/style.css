@@ -131,6 +131,11 @@ body {
   border-style: dashed;
 }
 
+.btn-outline.active {
+  background: var(--fg);
+  color: var(--inverse-fg);
+}
+
 .btn-big {
   flex: 1 1 0;
   padding: 18px 16px;
