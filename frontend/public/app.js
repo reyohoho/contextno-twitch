@@ -148,6 +148,13 @@ function setStatus(text, kind = "") {
   el.className = "status" + (kind ? " " + kind : "");
 }
 
+function playWinSound() {
+  try {
+    const audio = new Audio("/song.mp3");
+    audio.play().catch(() => {});
+  } catch (_) {}
+}
+
 function fmtInt(n) {
   return Number(n).toLocaleString("ru-RU");
 }
@@ -314,6 +321,11 @@ async function sendGuess(word, nick = null) {
       return;
     }
 
+    if (r.rank === 0) {
+      startGame();
+      return;
+    }
+
     upsertGuess({ ...r, nick });
 
     if (r.won) {
@@ -322,6 +334,7 @@ async function sendGuess(word, nick = null) {
       const winMsg = `угадано: ${r.word} (#1)${winner}`;
       setStatus(winMsg, "win");
       setMode("over");
+      playWinSound();
       if (state.handsOff) scheduleAutoRestart(winMsg);
     } else {
       const author = nick ? ` (${nick})` : "";
