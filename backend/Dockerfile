@@ -19,7 +19,7 @@ RUN mkdir -p "$CONTEXTNORF_DATA_DIR"
 RUN curl -fsSL -o "$CONTEXTNORF_DATA_DIR/navec_hudlit.tar" \
     "https://storage.yandexcloud.net/natasha-navec/packs/navec_hudlit_v1_12B_500K_300d_100q.tar"
 
-RUN curl -fsSL -o /tmp/rv.zip "https://vectors.nlpl.eu/repository/20/180.zip" \
+RUN curl -fsSL -o /tmp/rv.zip "https://starege.rte.net.ru/https://vectors.nlpl.eu/repository/20/180.zip" \
     && unzip -p /tmp/rv.zip model.bin > "$CONTEXTNORF_DATA_DIR/rusvectores_ruscorpora.bin" \
     && rm /tmp/rv.zip
 
