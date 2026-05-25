@@ -5,8 +5,11 @@ const AUTHOR_ID_KEY = "contextnorf:author_id";
 const TWITCH_CHANNEL_KEY = "contextnorf:twitch_channel";
 const SOURCE_KEY = "contextnorf:source";
 const HANDS_OFF_KEY = "contextnorf:hands_off";
+const WIN_SOUND_KEY = "contextnorf:win_sound";
+const SOUND_VOLUME_KEY = "contextnorf:sound_volume";
 
 const HANDS_OFF_DELAY = 10;
+const DEFAULT_SOUND_VOLUME = 0.5;
 
 const SOURCES = {
   contextno: { label: "Модель: контекстно.рф" },
@@ -27,6 +30,8 @@ const state = {
   twitch: { ws: null, channel: null, status: "disconnected" },
   handsOff: false,
   autoRestartTimer: null,
+  winSound: true,
+  soundVolume: DEFAULT_SOUND_VOLUME,
 };
 
 function isLocalSource(source = state.source) {
@@ -149,8 +154,10 @@ function setStatus(text, kind = "") {
 }
 
 function playWinSound() {
+  if (!state.winSound) return;
   try {
     const audio = new Audio("/song.mp3");
+    audio.volume = state.soundVolume;
     audio.play().catch(() => {});
   } catch (_) {}
 }
@@ -652,6 +659,65 @@ function setHandsOff(enabled) {
   if (!enabled) cancelAutoRestart();
 }
 
+function getSavedWinSound() {
+  try {
+    const v = localStorage.getItem(WIN_SOUND_KEY);
+    if (v === null) return true;
+    return v === "1";
+  } catch (_) {
+    return true;
+  }
+}
+
+function saveWinSound(enabled) {
+  try {
+    if (enabled) localStorage.setItem(WIN_SOUND_KEY, "1");
+    else localStorage.setItem(WIN_SOUND_KEY, "0");
+  } catch (_) {}
+}
+
+function getSavedSoundVolume() {
+  try {
+    const v = parseFloat(localStorage.getItem(SOUND_VOLUME_KEY));
+    if (!Number.isFinite(v)) return DEFAULT_SOUND_VOLUME;
+    return Math.max(0, Math.min(1, v));
+  } catch (_) {
+    return DEFAULT_SOUND_VOLUME;
+  }
+}
+
+function saveSoundVolume(volume) {
+  try {
+    localStorage.setItem(SOUND_VOLUME_KEY, String(volume));
+  } catch (_) {}
+}
+
+function renderSoundSettings() {
+  const check = $("#win-sound-enabled");
+  const slider = $("#sound-volume");
+  const valueEl = $("#sound-volume-value");
+  if (!check || !slider || !valueEl) return;
+
+  const pct = Math.round(state.soundVolume * 100);
+  check.checked = state.winSound;
+  slider.value = String(pct);
+  slider.disabled = !state.winSound;
+  slider.setAttribute("aria-valuenow", String(pct));
+  valueEl.textContent = `${pct}%`;
+}
+
+function setWinSound(enabled) {
+  state.winSound = enabled;
+  saveWinSound(enabled);
+  renderSoundSettings();
+}
+
+function setSoundVolume(volume) {
+  state.soundVolume = Math.max(0, Math.min(1, volume));
+  saveSoundVolume(state.soundVolume);
+  renderSoundSettings();
+}
+
 function renderSourcePicker() {
   for (const card of $$(".source-card")) {
     const selected = card.dataset.source === state.source;
@@ -693,14 +759,25 @@ function setSource(source) {
 (function init() {
   state.source = getSavedSource();
   state.handsOff = getSavedHandsOff();
+  state.winSound = getSavedWinSound();
+  state.soundVolume = getSavedSoundVolume();
   renderSourcePicker();
   renderHandsOffBtn();
+  renderSoundSettings();
   refreshBackendsInfo();
   for (const card of $$(".source-card")) {
     card.addEventListener("click", () => setSource(card.dataset.source));
   }
 
   $("#hands-off-btn").addEventListener("click", () => setHandsOff(!state.handsOff));
+
+  $("#win-sound-enabled").addEventListener("change", (ev) => {
+    setWinSound(ev.target.checked);
+  });
+
+  $("#sound-volume").addEventListener("input", (ev) => {
+    setSoundVolume(Number(ev.target.value) / 100);
+  });
 
   $("#random-btn").addEventListener("click", () => startGame());
 

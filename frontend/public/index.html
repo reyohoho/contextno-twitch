@@ -67,6 +67,27 @@
         </button>
       </form>
 
+      <section class="sound-settings" id="sound-settings" aria-label="звук">
+        <label class="sound-check">
+          <input type="checkbox" id="win-sound-enabled" checked />
+          <span>звук при угадывании</span>
+        </label>
+        <label class="sound-volume">
+          <span class="sound-volume-label">громкость</span>
+          <input
+            type="range"
+            id="sound-volume"
+            min="0"
+            max="100"
+            value="50"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="50"
+          />
+          <span class="sound-volume-value" id="sound-volume-value">50%</span>
+        </label>
+      </section>
+
       <section class="status" id="status">загрузка...</section>
 
       <section class="counters" id="counters" hidden>
