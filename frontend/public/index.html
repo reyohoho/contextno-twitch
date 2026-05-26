@@ -24,26 +24,21 @@
           <button id="custom-btn" class="btn btn-outline" type="button">
             загадать своё
           </button>
-          <button id="hands-off-btn" class="btn btn-outline" type="button" title="Автоматически начинать новую случайную игру через 10 сек после победы">
+          <button
+            id="hands-off-btn"
+            class="btn btn-outline"
+            type="button"
+            title="Игра идёт сама: когда чат угадывает слово, через 10 секунд начинается новая случайная игра.
+
+Команды для модераторов, владельца канала:
+!context_hint — подсказка
+!context_restart — сдаться, показать слово
+!context_reload — перезагрузить страницу"
+          >
             hands off
           </button>
         </div>
       </header>
-
-      <section class="source-picker" id="source-picker" aria-label="источник игры">
-        <button class="source-card" type="button" data-source="contextno">
-          <span class="source-card-name">Модель: контекстно.рф</span>
-          <span class="source-card-desc">внешнее API</span>
-        </button>
-        <button class="source-card" type="button" data-source="navec">
-          <span class="source-card-name">Модель: локальная Navec</span>
-          <span class="source-card-desc">локальная модель</span>
-        </button>
-        <button class="source-card" type="button" data-source="rusvectores">
-          <span class="source-card-name">Модель: локальная RusVectores</span>
-          <span class="source-card-desc">локальная модель · НКРЯ</span>
-        </button>
-      </section>
 
       <form class="twitch" id="twitch-form" autocomplete="off">
         <span
@@ -89,6 +84,16 @@
       </section>
 
       <section class="status" id="status">загрузка...</section>
+
+      <section
+        class="session-leaderboard"
+        id="session-leaderboard"
+        hidden
+        aria-label="топ отгадавших за сессию"
+      >
+        <h2 class="session-leaderboard-title">отгадали за сессию</h2>
+        <ol class="session-leaderboard-list" id="session-leaderboard-list"></ol>
+      </section>
 
       <section class="counters" id="counters" hidden>
         <span><b id="counter-guesses">0</b>&nbsp;попыток</span>
@@ -150,7 +155,7 @@
       <section class="guesses" id="guesses"></section>
 
       <footer class="footer">
-        <span class="footer-item" id="contextno-credit" hidden>
+        <span class="footer-item" id="contextno-credit">
           используем API
           <a
             class="footer-link"

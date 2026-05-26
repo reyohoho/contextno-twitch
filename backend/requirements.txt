@@ -2,9 +2,3 @@ fastapi==0.115.0
 uvicorn[standard]==0.30.6
 pydantic==2.9.2
 httpx==0.27.2
-
-numpy==1.26.4
-navec==0.10.0
-pymorphy3==2.0.6
-pymorphy3-dicts-ru==2.4.417150.4580142
-gensim==4.3.3

@@ -13,7 +13,6 @@ from .contextno import (
     resolve_challenge,
 )
 from .game import GameStore
-from .v2.routes import router as v2_router
 
 
 client = ContextnoClient()
@@ -26,7 +25,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.include_router(v2_router)
 
 
 class CreateGameBody(BaseModel):

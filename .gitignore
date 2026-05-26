@@ -3,5 +3,3 @@ __pycache__/
 *.pyo
 .venv/
 venv/
-
-backend/data/

@@ -3,44 +3,30 @@
 const API = "/api";
 const AUTHOR_ID_KEY = "contextnorf:author_id";
 const TWITCH_CHANNEL_KEY = "contextnorf:twitch_channel";
-const SOURCE_KEY = "contextnorf:source";
 const HANDS_OFF_KEY = "contextnorf:hands_off";
+const SESSION_WINS_KEY = "contextnorf:session_wins";
 const WIN_SOUND_KEY = "contextnorf:win_sound";
 const SOUND_VOLUME_KEY = "contextnorf:sound_volume";
+
+const PRIVILEGED_CHAT_LOGINS = new Set(["olegsvs"]);
 
 const HANDS_OFF_DELAY = 10;
 const DEFAULT_SOUND_VOLUME = 0.5;
 
-const SOURCES = {
-  contextno: { label: "Модель: контекстно.рф" },
-  navec: { label: "Модель: локальная Navec" },
-  rusvectores: { label: "Модель: локальная RusVectores" },
-};
-const DEFAULT_SOURCE = "contextno";
-
 const $ = (sel) => document.querySelector(sel);
-const $$ = (sel) => document.querySelectorAll(sel);
 
 const state = {
   game: null,
   guesses: [],
   won: false,
   tipsUsed: 0,
-  source: DEFAULT_SOURCE,
   twitch: { ws: null, channel: null, status: "disconnected" },
   handsOff: false,
   autoRestartTimer: null,
+  sessionWins: new Map(),
   winSound: true,
   soundVolume: DEFAULT_SOUND_VOLUME,
 };
-
-function isLocalSource(source = state.source) {
-  return source === "navec" || source === "rusvectores";
-}
-
-function gamesPath() {
-  return isLocalSource() ? "/v2/games" : "/games";
-}
 
 function uuidv4() {
   if (window.crypto && typeof crypto.randomUUID === "function") {
@@ -274,15 +260,9 @@ async function startGame({ secret = null } = {}) {
   resetBoard();
   setStatus(secret ? "публикация..." : "новая случайная игра...");
   try {
-    let body;
-    if (isLocalSource()) {
-      body = { backend: state.source };
-      if (secret) body.secret = secret;
-    } else {
-      body = { mode: "random", secret };
-      if (secret) body.author_id = getAuthorId();
-    }
-    const data = await api(gamesPath(), {
+    const body = { mode: "random", secret };
+    if (secret) body.author_id = getAuthorId();
+    const data = await api("/games", {
       method: "POST",
       body: JSON.stringify(body),
     });
@@ -294,12 +274,6 @@ async function startGame({ secret = null } = {}) {
       setStatus("игра началась");
     } else if (data.challenge && data.challenge.name) {
       setStatus(`${data.challenge.name} (${data.challenge.challenge_type})`);
-    } else if (isLocalSource()) {
-      const label = SOURCES[state.source].label;
-      const vocab = data.vocab_size
-        ? ` · словарь ${fmtInt(data.vocab_size)}`
-        : "";
-      setStatus(`${label}${vocab}`);
     } else {
       setStatus("игра началась");
     }
@@ -318,7 +292,7 @@ async function sendGuess(word, nick = null) {
   if (state.guesses.some((g) => g.word === word && !g.tip)) return;
 
   try {
-    const r = await api(`${gamesPath()}/${state.game.game_id}/guess`, {
+    const r = await api(`/games/${state.game.game_id}/guess`, {
       method: "POST",
       body: JSON.stringify({ word }),
     });
@@ -337,6 +311,7 @@ async function sendGuess(word, nick = null) {
 
     if (r.won) {
       state.won = true;
+      if (nick) recordSessionWin(nick);
       const winner = nick ? ` — ${nick}` : "";
       const winMsg = `угадано: ${r.word} (#1)${winner}`;
       setStatus(winMsg, "win");
@@ -366,7 +341,7 @@ function submitGuess(ev) {
 async function getTip() {
   if (!state.game || state.won) return;
   try {
-    const r = await api(`${gamesPath()}/${state.game.game_id}/tip`, { method: "POST" });
+    const r = await api(`/games/${state.game.game_id}/tip`, { method: "POST" });
     if (r.error) {
       setStatus(r.error, "error");
       return;
@@ -380,17 +355,18 @@ async function getTip() {
   }
 }
 
-async function giveUp() {
+async function giveUp({ skipConfirm = false } = {}) {
   if (!state.game || state.won) return;
-  if (!confirm("сдаёмся?")) return;
+  if (!skipConfirm && !confirm("сдаёмся?")) return;
   try {
-    const r = await api(`${gamesPath()}/${state.game.game_id}/give-up`, {
+    const r = await api(`/games/${state.game.game_id}/give-up`, {
       method: "POST",
     });
     state.won = true;
     setMode("over");
-    if (r.secret) setStatus(`загаданное слово: ${r.secret}`, "win");
-    else setStatus("игра завершена", "win");
+    const overMsg = r.secret ? `загаданное слово: ${r.secret}` : "игра завершена";
+    setStatus(overMsg, "win");
+    if (state.handsOff) scheduleAutoRestart(overMsg);
   } catch (e) {
     setStatus(e.message, "error");
   }
@@ -471,6 +447,107 @@ function extractWord(text) {
   if (!/^[а-яё]+$/.test(t)) return null;
   if (t.length < 2 || t.length > 30) return null;
   return t;
+}
+
+function isPrivilegedChatter(tags, login, display) {
+  const badges = tags.badges || "";
+  if (badges.includes("broadcaster/") || badges.includes("moderator/")) return true;
+  if (tags.mod === "1") return true;
+  const l = (login || "").toLowerCase();
+  const d = (display || "").toLowerCase();
+  return PRIVILEGED_CHAT_LOGINS.has(l) || PRIVILEGED_CHAT_LOGINS.has(d);
+}
+
+function parseChatCommand(text) {
+  const cmd = (text || "").trim().toLowerCase();
+  if (cmd === "!context_hint") return "hint";
+  if (cmd === "!context_restart") return "restart";
+  if (cmd === "!context_reload") return "reload";
+  return null;
+}
+
+function reloadPagePreservingSettings() {
+  saveHandsOff(state.handsOff);
+  const channel =
+    state.twitch.channel ||
+    ($("#twitch-channel")?.value || "").trim().toLowerCase().replace(/^#/, "") ||
+    getSavedChannel();
+  if (channel) saveChannel(channel);
+  location.reload();
+}
+
+function loadSessionWins() {
+  try {
+    const raw = sessionStorage.getItem(SESSION_WINS_KEY);
+    if (!raw) return new Map();
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== "object") return new Map();
+    return new Map(Object.entries(obj).map(([k, v]) => [k, Number(v) || 0]));
+  } catch (_) {
+    return new Map();
+  }
+}
+
+function saveSessionWins() {
+  try {
+    sessionStorage.setItem(
+      SESSION_WINS_KEY,
+      JSON.stringify(Object.fromEntries(state.sessionWins))
+    );
+  } catch (_) {}
+}
+
+function recordSessionWin(nick) {
+  if (!nick) return;
+  state.sessionWins.set(nick, (state.sessionWins.get(nick) || 0) + 1);
+  saveSessionWins();
+}
+
+function pluralWinsRu(n) {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return "раз";
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return "раза";
+  return "раз";
+}
+
+function renderSessionLeaderboard() {
+  const section = $("#session-leaderboard");
+  const list = $("#session-leaderboard-list");
+  if (!section || !list) return;
+
+  const entries = [...state.sessionWins.entries()].sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ru")
+  );
+
+  list.innerHTML = "";
+  if (!entries.length) {
+    section.hidden = true;
+    return;
+  }
+
+  for (let i = 0; i < Math.min(entries.length, 10); i++) {
+    const [nick, wins] = entries[i];
+    const li = document.createElement("li");
+    li.className = "session-leaderboard-row";
+    li.innerHTML = `
+      <span class="session-rank">${i + 1}</span>
+      <span class="session-nick">@${nick}</span>
+      <span class="session-wins" title="${fmtInt(wins)} ${pluralWinsRu(wins)}">${fmtInt(wins)}</span>
+    `;
+    list.appendChild(li);
+  }
+  section.hidden = false;
+}
+
+function setSessionLeaderboardVisible(visible) {
+  const section = $("#session-leaderboard");
+  if (!section) return;
+  if (!visible) {
+    section.hidden = true;
+    return;
+  }
+  renderSessionLeaderboard();
 }
 
 function safeClose(ws) {
@@ -558,6 +635,13 @@ function connectTwitch(channel) {
       if (m.command === "PRIVMSG") {
         const nickFromPrefix = m.prefix.split("!")[0];
         const display = m.tags["display-name"] || nickFromPrefix;
+        const chatCmd = parseChatCommand(m.trailing);
+        if (chatCmd && isPrivilegedChatter(m.tags, nickFromPrefix, display)) {
+          if (chatCmd === "hint") getTip();
+          else if (chatCmd === "restart") giveUp({ skipConfirm: true });
+          else if (chatCmd === "reload") reloadPagePreservingSettings();
+          continue;
+        }
         const word = extractWord(m.trailing);
         if (!word) continue;
         if (!state.game || state.won) continue;
@@ -594,20 +678,6 @@ function saveChannel(channel) {
   } catch (_) {}
 }
 
-function getSavedSource() {
-  let s;
-  try {
-    s = localStorage.getItem(SOURCE_KEY);
-  } catch (_) {}
-  return SOURCES[s] ? s : DEFAULT_SOURCE;
-}
-
-function saveSource(source) {
-  try {
-    localStorage.setItem(SOURCE_KEY, source);
-  } catch (_) {}
-}
-
 function getSavedHandsOff() {
   try {
     return localStorage.getItem(HANDS_OFF_KEY) === "1";
@@ -635,10 +705,12 @@ function cancelAutoRestart() {
     clearInterval(state.autoRestartTimer);
     state.autoRestartTimer = null;
   }
+  setSessionLeaderboardVisible(false);
 }
 
 function scheduleAutoRestart(winStatus) {
   cancelAutoRestart();
+  setSessionLeaderboardVisible(true);
   let remaining = HANDS_OFF_DELAY;
   setStatus(`${winStatus} · новая игра через ${remaining} сек`, "win");
   state.autoRestartTimer = setInterval(() => {
@@ -718,56 +790,13 @@ function setSoundVolume(volume) {
   renderSoundSettings();
 }
 
-function renderSourcePicker() {
-  for (const card of $$(".source-card")) {
-    const selected = card.dataset.source === state.source;
-    card.classList.toggle("selected", selected);
-    card.setAttribute("aria-pressed", selected ? "true" : "false");
-  }
-  const credit = $("#contextno-credit");
-  if (credit) credit.hidden = state.source !== "contextno";
-}
-
-async function refreshBackendsInfo() {
-  let data;
-  try {
-    data = await api("/v2/backends");
-  } catch (_) {
-    return;
-  }
-  const map = new Map();
-  for (const b of data.backends || []) map.set(b.id, b);
-  for (const card of $$(".source-card")) {
-    const id = card.dataset.source;
-    const info = map.get(id);
-    if (!info || typeof info.vocab_size !== "number") continue;
-    const desc = card.querySelector(".source-card-desc");
-    if (!desc) continue;
-    const meta = id === "rusvectores" ? " · НКРЯ" : "";
-    desc.textContent = `${fmtInt(info.vocab_size)} существительных${meta}`;
-  }
-}
-
-function setSource(source) {
-  if (!SOURCES[source] || source === state.source) return;
-  state.source = source;
-  saveSource(source);
-  renderSourcePicker();
-  startGame();
-}
-
 (function init() {
-  state.source = getSavedSource();
+  state.sessionWins = loadSessionWins();
   state.handsOff = getSavedHandsOff();
   state.winSound = getSavedWinSound();
   state.soundVolume = getSavedSoundVolume();
-  renderSourcePicker();
   renderHandsOffBtn();
   renderSoundSettings();
-  refreshBackendsInfo();
-  for (const card of $$(".source-card")) {
-    card.addEventListener("click", () => setSource(card.dataset.source));
-  }
 
   $("#hands-off-btn").addEventListener("click", () => setHandsOff(!state.handsOff));
 
