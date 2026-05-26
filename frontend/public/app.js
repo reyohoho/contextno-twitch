@@ -28,8 +28,7 @@ const state = {
   winnerWinsAlltime: new Map(),
   winnerWinsToday: new Map(),
   winnerWinsTodayDate: "",
-  statsOpen: false,
-  statsBreakVisible: false,
+  roundHasWord: false,
   winSound: true,
   soundVolume: DEFAULT_SOUND_VOLUME,
 };
@@ -133,6 +132,7 @@ function resetBoard() {
   state.guesses = [];
   state.tipsUsed = 0;
   state.won = false;
+  state.roundHasWord = false;
   $("#guesses").innerHTML = "";
   $("#last-guess").innerHTML = "";
   $("#counter-guesses").textContent = "0";
@@ -284,10 +284,17 @@ async function startGame({ secret = null } = {}) {
       setStatus("игра началась");
     }
     render();
+    renderWinnersLeaderboards();
   } catch (e) {
     setMode(secret ? "secret" : "over");
     setStatus(e.message, "error");
   }
+}
+
+function markWordEntered() {
+  if (state.roundHasWord) return;
+  state.roundHasWord = true;
+  renderWinnersLeaderboards();
 }
 
 async function sendGuess(word, nick = null) {
@@ -314,6 +321,7 @@ async function sendGuess(word, nick = null) {
     }
 
     upsertGuess({ ...r, nick });
+    markWordEntered();
 
     if (r.won) {
       state.won = true;
@@ -323,6 +331,7 @@ async function sendGuess(word, nick = null) {
       setStatus(winMsg, "win");
       setMode("over");
       playWinSound();
+      renderWinnersLeaderboards();
       if (state.handsOff) scheduleAutoRestart(winMsg);
     } else {
       const author = nick ? ` (${nick})` : "";
@@ -372,6 +381,7 @@ async function giveUp({ skipConfirm = false } = {}) {
     setMode("over");
     const overMsg = r.secret ? `загаданное слово: ${r.secret}` : "игра завершена";
     setStatus(overMsg, "win");
+    renderWinnersLeaderboards();
     if (state.handsOff) scheduleAutoRestart(overMsg);
   } catch (e) {
     setStatus(e.message, "error");
@@ -631,7 +641,12 @@ function winnersHasData() {
 }
 
 function shouldShowWinnersBoards() {
-  return (state.statsOpen || state.statsBreakVisible) && winnersHasData();
+  if (!winnersHasData()) return false;
+  if (state.handsOff) {
+    if (state.won) return true;
+    return !!state.game && !state.roundHasWord;
+  }
+  return state.won;
 }
 
 function renderWinnersLeaderboards() {
@@ -650,19 +665,6 @@ function renderWinnersLeaderboards() {
   );
   const wrap = $("#winners-boards");
   if (wrap) wrap.hidden = !shouldShowWinnersBoards();
-}
-
-function renderStatsBtn() {
-  const btn = $("#stats-btn");
-  if (!btn) return;
-  btn.classList.toggle("active", state.statsOpen);
-  btn.setAttribute("aria-pressed", state.statsOpen ? "true" : "false");
-}
-
-function toggleStats() {
-  state.statsOpen = !state.statsOpen;
-  renderStatsBtn();
-  renderWinnersLeaderboards();
 }
 
 function safeClose(ws) {
@@ -824,13 +826,11 @@ function cancelAutoRestartTimer() {
 
 function cancelAutoRestart() {
   cancelAutoRestartTimer();
-  state.statsBreakVisible = false;
   renderWinnersLeaderboards();
 }
 
 function scheduleAutoRestart(winStatus) {
   cancelAutoRestartTimer();
-  state.statsBreakVisible = true;
   renderWinnersLeaderboards();
   let remaining = HANDS_OFF_DELAY;
   setStatus(`${winStatus} · новая игра через ${remaining} сек`, "win");
@@ -925,13 +925,11 @@ function setSoundVolume(volume) {
   state.winSound = getSavedWinSound();
   state.soundVolume = getSavedSoundVolume();
   renderWinnersLeaderboards();
-  renderStatsBtn();
   renderHandsOffBtn();
   renderSoundSettings();
 
   $("#reset-winners-alltime-btn")?.addEventListener("click", resetWinnersAlltime);
   $("#reset-winners-today-btn")?.addEventListener("click", resetWinnersToday);
-  $("#stats-btn")?.addEventListener("click", toggleStats);
 
   $("#hands-off-btn").addEventListener("click", () => setHandsOff(!state.handsOff));
 
