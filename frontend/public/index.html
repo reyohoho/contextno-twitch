@@ -85,15 +85,47 @@
 
       <section class="status" id="status">загрузка...</section>
 
-      <section
-        class="session-leaderboard"
-        id="session-leaderboard"
-        hidden
-        aria-label="топ отгадавших за сессию"
-      >
-        <h2 class="session-leaderboard-title">отгадали за сессию</h2>
-        <ol class="session-leaderboard-list" id="session-leaderboard-list"></ol>
-      </section>
+      <div class="winners-boards" id="winners-boards" hidden>
+        <section
+          class="session-leaderboard"
+          id="winners-today"
+          hidden
+          aria-label="топ победителей за сегодня"
+        >
+          <div class="session-leaderboard-head">
+            <h2 class="session-leaderboard-title">сегодня</h2>
+            <button
+              id="reset-winners-today-btn"
+              class="btn btn-ghost session-reset-btn"
+              type="button"
+              hidden
+            >
+              сбросить
+            </button>
+          </div>
+          <ol class="session-leaderboard-list" id="winners-today-list"></ol>
+        </section>
+
+        <section
+          class="session-leaderboard"
+          id="winners-alltime"
+          hidden
+          aria-label="топ победителей за всё время"
+        >
+          <div class="session-leaderboard-head">
+            <h2 class="session-leaderboard-title">всё время</h2>
+            <button
+              id="reset-winners-alltime-btn"
+              class="btn btn-ghost session-reset-btn"
+              type="button"
+              hidden
+            >
+              сбросить
+            </button>
+          </div>
+          <ol class="session-leaderboard-list" id="winners-alltime-list"></ol>
+        </section>
+      </div>
 
       <section class="counters" id="counters" hidden>
         <span><b id="counter-guesses">0</b>&nbsp;попыток</span>

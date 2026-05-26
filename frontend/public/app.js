@@ -4,7 +4,9 @@ const API = "/api";
 const AUTHOR_ID_KEY = "contextnorf:author_id";
 const TWITCH_CHANNEL_KEY = "contextnorf:twitch_channel";
 const HANDS_OFF_KEY = "contextnorf:hands_off";
-const SESSION_WINS_KEY = "contextnorf:session_wins";
+const WINNERS_ALLTIME_KEY = "contextnorf:winners";
+const WINNERS_TODAY_KEY = "contextnorf:winners_today";
+const LEGACY_WINNERS_KEY = "contextnorf:session_wins";
 const WIN_SOUND_KEY = "contextnorf:win_sound";
 const SOUND_VOLUME_KEY = "contextnorf:sound_volume";
 
@@ -23,7 +25,9 @@ const state = {
   twitch: { ws: null, channel: null, status: "disconnected" },
   handsOff: false,
   autoRestartTimer: null,
-  sessionWins: new Map(),
+  winnerWinsAlltime: new Map(),
+  winnerWinsToday: new Map(),
+  winnerWinsTodayDate: "",
   winSound: true,
   soundVolume: DEFAULT_SOUND_VOLUME,
 };
@@ -311,7 +315,7 @@ async function sendGuess(word, nick = null) {
 
     if (r.won) {
       state.won = true;
-      if (nick) recordSessionWin(nick);
+      if (nick) recordWinner(nick);
       const winner = nick ? ` — ${nick}` : "";
       const winMsg = `угадано: ${r.word} (#1)${winner}`;
       setStatus(winMsg, "win");
@@ -476,9 +480,8 @@ function reloadPagePreservingSettings() {
   location.reload();
 }
 
-function loadSessionWins() {
+function parseWinnersMap(raw) {
   try {
-    const raw = sessionStorage.getItem(SESSION_WINS_KEY);
     if (!raw) return new Map();
     const obj = JSON.parse(raw);
     if (!obj || typeof obj !== "object") return new Map();
@@ -488,19 +491,98 @@ function loadSessionWins() {
   }
 }
 
-function saveSessionWins() {
+function todayDateKey() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function syncTodayWinnersDate() {
+  const today = todayDateKey();
+  if (state.winnerWinsTodayDate === today) return;
+  state.winnerWinsTodayDate = today;
+  state.winnerWinsToday = new Map();
+}
+
+function loadWinnersAlltime() {
   try {
-    sessionStorage.setItem(
-      SESSION_WINS_KEY,
-      JSON.stringify(Object.fromEntries(state.sessionWins))
+    const raw = localStorage.getItem(WINNERS_ALLTIME_KEY);
+    if (raw) return parseWinnersMap(raw);
+  } catch (_) {}
+  try {
+    const legacy =
+      localStorage.getItem(LEGACY_WINNERS_KEY) ||
+      sessionStorage.getItem(LEGACY_WINNERS_KEY) ||
+      sessionStorage.getItem(WINNERS_ALLTIME_KEY);
+    if (legacy) {
+      const map = parseWinnersMap(legacy);
+      saveWinnersAlltime(map);
+      return map;
+    }
+  } catch (_) {}
+  return new Map();
+}
+
+function loadWinnersToday() {
+  const today = todayDateKey();
+  try {
+    const raw = localStorage.getItem(WINNERS_TODAY_KEY);
+    if (raw) {
+      const data = JSON.parse(raw);
+      if (data && data.date === today && data.winners) {
+        return { date: today, map: parseWinnersMap(JSON.stringify(data.winners)) };
+      }
+    }
+  } catch (_) {}
+  return { date: today, map: new Map() };
+}
+
+function saveWinnersAlltime(map = state.winnerWinsAlltime) {
+  try {
+    localStorage.setItem(WINNERS_ALLTIME_KEY, JSON.stringify(Object.fromEntries(map)));
+  } catch (_) {}
+}
+
+function saveWinnersToday() {
+  syncTodayWinnersDate();
+  try {
+    localStorage.setItem(
+      WINNERS_TODAY_KEY,
+      JSON.stringify({
+        date: state.winnerWinsTodayDate,
+        winners: Object.fromEntries(state.winnerWinsToday),
+      })
     );
   } catch (_) {}
 }
 
-function recordSessionWin(nick) {
+function recordWinner(nick) {
   if (!nick) return;
-  state.sessionWins.set(nick, (state.sessionWins.get(nick) || 0) + 1);
-  saveSessionWins();
+  state.winnerWinsAlltime.set(nick, (state.winnerWinsAlltime.get(nick) || 0) + 1);
+  syncTodayWinnersDate();
+  state.winnerWinsToday.set(nick, (state.winnerWinsToday.get(nick) || 0) + 1);
+  saveWinnersAlltime();
+  saveWinnersToday();
+  renderWinnersLeaderboards();
+}
+
+function resetWinnersAlltime() {
+  if (!state.winnerWinsAlltime.size) return;
+  if (!confirm("сбросить топ за всё время?")) return;
+  state.winnerWinsAlltime = new Map();
+  saveWinnersAlltime();
+  renderWinnersLeaderboards();
+}
+
+function resetWinnersToday() {
+  syncTodayWinnersDate();
+  if (!state.winnerWinsToday.size) return;
+  if (!confirm("сбросить топ за сегодня?")) return;
+  state.winnerWinsToday = new Map();
+  saveWinnersToday();
+  renderWinnersLeaderboards();
 }
 
 function pluralWinsRu(n) {
@@ -511,20 +593,21 @@ function pluralWinsRu(n) {
   return "раз";
 }
 
-function renderSessionLeaderboard() {
-  const section = $("#session-leaderboard");
-  const list = $("#session-leaderboard-list");
-  if (!section || !list) return;
+function renderOneWinnersBoard(section, list, resetBtn, map) {
+  if (!section || !list) return false;
 
-  const entries = [...state.sessionWins.entries()].sort(
+  const entries = [...map.entries()].sort(
     (a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ru")
   );
 
   list.innerHTML = "";
   if (!entries.length) {
     section.hidden = true;
-    return;
+    if (resetBtn) resetBtn.hidden = true;
+    return false;
   }
+
+  if (resetBtn) resetBtn.hidden = false;
 
   for (let i = 0; i < Math.min(entries.length, 10); i++) {
     const [nick, wins] = entries[i];
@@ -538,16 +621,25 @@ function renderSessionLeaderboard() {
     list.appendChild(li);
   }
   section.hidden = false;
+  return true;
 }
 
-function setSessionLeaderboardVisible(visible) {
-  const section = $("#session-leaderboard");
-  if (!section) return;
-  if (!visible) {
-    section.hidden = true;
-    return;
-  }
-  renderSessionLeaderboard();
+function renderWinnersLeaderboards() {
+  syncTodayWinnersDate();
+  const wrap = $("#winners-boards");
+  const hasToday = renderOneWinnersBoard(
+    $("#winners-today"),
+    $("#winners-today-list"),
+    $("#reset-winners-today-btn"),
+    state.winnerWinsToday
+  );
+  const hasAlltime = renderOneWinnersBoard(
+    $("#winners-alltime"),
+    $("#winners-alltime-list"),
+    $("#reset-winners-alltime-btn"),
+    state.winnerWinsAlltime
+  );
+  if (wrap) wrap.hidden = !(hasToday || hasAlltime);
 }
 
 function safeClose(ws) {
@@ -705,12 +797,10 @@ function cancelAutoRestart() {
     clearInterval(state.autoRestartTimer);
     state.autoRestartTimer = null;
   }
-  setSessionLeaderboardVisible(false);
 }
 
 function scheduleAutoRestart(winStatus) {
   cancelAutoRestart();
-  setSessionLeaderboardVisible(true);
   let remaining = HANDS_OFF_DELAY;
   setStatus(`${winStatus} · новая игра через ${remaining} сек`, "win");
   state.autoRestartTimer = setInterval(() => {
@@ -791,12 +881,19 @@ function setSoundVolume(volume) {
 }
 
 (function init() {
-  state.sessionWins = loadSessionWins();
+  state.winnerWinsAlltime = loadWinnersAlltime();
+  const todayWinners = loadWinnersToday();
+  state.winnerWinsTodayDate = todayWinners.date;
+  state.winnerWinsToday = todayWinners.map;
   state.handsOff = getSavedHandsOff();
   state.winSound = getSavedWinSound();
   state.soundVolume = getSavedSoundVolume();
+  renderWinnersLeaderboards();
   renderHandsOffBtn();
   renderSoundSettings();
+
+  $("#reset-winners-alltime-btn")?.addEventListener("click", resetWinnersAlltime);
+  $("#reset-winners-today-btn")?.addEventListener("click", resetWinnersToday);
 
   $("#hands-off-btn").addEventListener("click", () => setHandsOff(!state.handsOff));
 

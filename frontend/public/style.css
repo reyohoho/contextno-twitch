@@ -186,19 +186,42 @@ body {
   padding: 8px 10px;
 }
 
+.winners-boards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+.winners-boards .session-leaderboard {
+  margin: 0;
+}
+
 .session-leaderboard {
   margin: 0 0 14px;
   padding: 10px 12px;
   border: 1px solid var(--line-strong);
   background: var(--soft);
 }
+.session-leaderboard-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
 .session-leaderboard-title {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--muted);
+}
+.session-reset-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  border-style: dashed;
+  flex-shrink: 0;
 }
 .session-leaderboard-list {
   margin: 0;
@@ -558,5 +581,8 @@ body {
   }
   .header-actions .btn {
     flex: 1 1 0;
+  }
+  .winners-boards {
+    grid-template-columns: 1fr;
   }
 }
