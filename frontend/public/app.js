@@ -28,6 +28,8 @@ const state = {
   winnerWinsAlltime: new Map(),
   winnerWinsToday: new Map(),
   winnerWinsTodayDate: "",
+  statsOpen: false,
+  statsBreakVisible: false,
   winSound: true,
   soundVolume: DEFAULT_SOUND_VOLUME,
 };
@@ -624,22 +626,43 @@ function renderOneWinnersBoard(section, list, resetBtn, map) {
   return true;
 }
 
+function winnersHasData() {
+  return state.winnerWinsToday.size > 0 || state.winnerWinsAlltime.size > 0;
+}
+
+function shouldShowWinnersBoards() {
+  return (state.statsOpen || state.statsBreakVisible) && winnersHasData();
+}
+
 function renderWinnersLeaderboards() {
   syncTodayWinnersDate();
-  const wrap = $("#winners-boards");
-  const hasToday = renderOneWinnersBoard(
+  renderOneWinnersBoard(
     $("#winners-today"),
     $("#winners-today-list"),
     $("#reset-winners-today-btn"),
     state.winnerWinsToday
   );
-  const hasAlltime = renderOneWinnersBoard(
+  renderOneWinnersBoard(
     $("#winners-alltime"),
     $("#winners-alltime-list"),
     $("#reset-winners-alltime-btn"),
     state.winnerWinsAlltime
   );
-  if (wrap) wrap.hidden = !(hasToday || hasAlltime);
+  const wrap = $("#winners-boards");
+  if (wrap) wrap.hidden = !shouldShowWinnersBoards();
+}
+
+function renderStatsBtn() {
+  const btn = $("#stats-btn");
+  if (!btn) return;
+  btn.classList.toggle("active", state.statsOpen);
+  btn.setAttribute("aria-pressed", state.statsOpen ? "true" : "false");
+}
+
+function toggleStats() {
+  state.statsOpen = !state.statsOpen;
+  renderStatsBtn();
+  renderWinnersLeaderboards();
 }
 
 function safeClose(ws) {
@@ -792,15 +815,23 @@ function renderHandsOffBtn() {
   btn.setAttribute("aria-pressed", state.handsOff ? "true" : "false");
 }
 
-function cancelAutoRestart() {
+function cancelAutoRestartTimer() {
   if (state.autoRestartTimer) {
     clearInterval(state.autoRestartTimer);
     state.autoRestartTimer = null;
   }
 }
 
+function cancelAutoRestart() {
+  cancelAutoRestartTimer();
+  state.statsBreakVisible = false;
+  renderWinnersLeaderboards();
+}
+
 function scheduleAutoRestart(winStatus) {
-  cancelAutoRestart();
+  cancelAutoRestartTimer();
+  state.statsBreakVisible = true;
+  renderWinnersLeaderboards();
   let remaining = HANDS_OFF_DELAY;
   setStatus(`${winStatus} · новая игра через ${remaining} сек`, "win");
   state.autoRestartTimer = setInterval(() => {
@@ -815,10 +846,15 @@ function scheduleAutoRestart(winStatus) {
 }
 
 function setHandsOff(enabled) {
+  const wasOff = !state.handsOff;
   state.handsOff = enabled;
   saveHandsOff(enabled);
   renderHandsOffBtn();
-  if (!enabled) cancelAutoRestart();
+  if (enabled) {
+    if (wasOff) startGame();
+  } else {
+    cancelAutoRestart();
+  }
 }
 
 function getSavedWinSound() {
@@ -889,11 +925,13 @@ function setSoundVolume(volume) {
   state.winSound = getSavedWinSound();
   state.soundVolume = getSavedSoundVolume();
   renderWinnersLeaderboards();
+  renderStatsBtn();
   renderHandsOffBtn();
   renderSoundSettings();
 
   $("#reset-winners-alltime-btn")?.addEventListener("click", resetWinnersAlltime);
   $("#reset-winners-today-btn")?.addEventListener("click", resetWinnersToday);
+  $("#stats-btn")?.addEventListener("click", toggleStats);
 
   $("#hands-off-btn").addEventListener("click", () => setHandsOff(!state.handsOff));
 
