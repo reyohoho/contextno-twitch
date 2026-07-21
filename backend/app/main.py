@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
@@ -13,10 +14,12 @@ from .contextno import (
     resolve_challenge,
 )
 from .game import GameStore
+from .winners import WinnersStore
 
 
 client = ContextnoClient()
 store = GameStore()
+winners = WinnersStore(os.environ.get("WINNERS_FILE", "/data/winners.json"))
 
 app = FastAPI(title="contextnorf-backend", version="2.0.0")
 app.add_middleware(
@@ -36,6 +39,19 @@ class CreateGameBody(BaseModel):
 
 class GuessBody(BaseModel):
     word: str
+
+
+class WinBody(BaseModel):
+    nick: str
+
+
+class ResetWinnersBody(BaseModel):
+    scope: str = Field(default="today", description="today | alltime | all")
+
+
+class ImportWinnersBody(BaseModel):
+    alltime: dict[str, int] = Field(default_factory=dict)
+    today: Optional[dict] = None
 
 
 def _get(game_id: str) -> Game:
@@ -88,3 +104,41 @@ def post_tip(game_id: str) -> dict:
 @app.post("/api/games/{game_id}/give-up")
 def post_give_up(game_id: str) -> dict:
     return _get(game_id).give_up()
+
+
+@app.get("/api/winners/{channel}")
+def get_winners(channel: str) -> dict:
+    try:
+        return winners.get(channel)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/winners/{channel}/win")
+def post_winner(channel: str, body: WinBody) -> dict:
+    try:
+        return winners.add_win(channel, body.nick)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/winners/{channel}/reset")
+def post_reset_winners(channel: str, body: ResetWinnersBody) -> dict:
+    try:
+        return winners.reset(channel, body.scope)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/winners/{channel}/import")
+def post_import_winners(channel: str, body: ImportWinnersBody) -> dict:
+    today = body.today if isinstance(body.today, dict) else {}
+    try:
+        return winners.import_merge(
+            channel,
+            alltime=body.alltime,
+            today_winners=today.get("winners"),
+            today_date=today.get("date"),
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))

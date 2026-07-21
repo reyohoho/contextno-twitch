@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>контекст · OBS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Roboto:wght@400;500;700;900&display=swap"
+    />
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/obs.css" />
+  </head>
+  <body class="obs">
+    <main class="widget" id="widget">
+      <header class="widget-header">
+        <h1 class="widget-title">КОНТЕКСТ</h1>
+        <span class="widget-led" id="twitch-led" aria-hidden="true"></span>
+      </header>
+
+      <section class="widget-status" id="status">загрузка...</section>
+
+      <div class="winners-boards" id="winners-boards" hidden>
+        <section class="session-leaderboard" id="winners-today" hidden>
+          <div class="session-leaderboard-head">
+            <h2 class="session-leaderboard-title">сегодня</h2>
+          </div>
+          <ol class="session-leaderboard-list" id="winners-today-list"></ol>
+        </section>
+
+        <section class="session-leaderboard" id="winners-alltime" hidden>
+          <div class="session-leaderboard-head">
+            <h2 class="session-leaderboard-title">всё время</h2>
+          </div>
+          <ol class="session-leaderboard-list" id="winners-alltime-list"></ol>
+        </section>
+      </div>
+
+      <section class="counters" id="counters" hidden>
+        <span><b id="counter-guesses">0</b>&nbsp;попыток</span>
+        <span><b id="counter-tips">0</b>&nbsp;подсказок</span>
+      </section>
+
+      <section class="last-guess" id="last-guess" aria-live="polite"></section>
+      <section class="guesses" id="guesses"></section>
+
+      <section class="widget-setup" id="widget-setup" hidden></section>
+    </main>
+
+    <script src="/obs.js"></script>
+  </body>
+</html>

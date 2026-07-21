@@ -1,0 +1,172 @@
+/* OBS browser-source overlay overrides.
+   Background is transparent so only the panel shows over the stream. */
+
+html,
+body.obs {
+  background: transparent !important;
+  min-height: 0;
+  overflow: hidden;
+  /* Brighter muted text — #9a9a9a washes out on stream captures */
+  --muted: #d4d4d4;
+  --line: #3a3a3a;
+  --line-strong: #5a5a5a;
+}
+
+body.obs {
+  padding: 12px;
+}
+
+.widget {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 16px 18px 18px;
+  background: rgba(0, 0, 0, 0.82);
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 2px solid var(--fg);
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+}
+
+.widget-title {
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  margin: 0;
+  line-height: 1;
+}
+
+.widget-led {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--line-strong);
+  flex-shrink: 0;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.widget-led.connecting {
+  background: var(--muted);
+  animation: twitch-pulse 1s ease-in-out infinite;
+}
+.widget-led.connected {
+  background: #4ade80;
+  box-shadow: 0 0 8px rgba(74, 222, 128, 0.8);
+}
+
+.widget-status {
+  font-size: 15px;
+  color: #e8e8e8;
+  margin: 0 0 12px;
+  min-height: 1.4em;
+  border-left: 3px solid var(--line-strong);
+  padding-left: 12px;
+  font-weight: 600;
+}
+.widget-status.error {
+  color: #ff6b6b;
+  border-left-color: #ff6b6b;
+  font-weight: 700;
+}
+.widget-status.win {
+  color: var(--inverse-fg);
+  background: var(--fg);
+  border-left-color: var(--fg);
+  font-weight: 800;
+  padding: 10px 12px;
+  border-radius: 6px;
+}
+.widget-status.win .win-nick {
+  font-size: 1.25em;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.widget .winners-boards {
+  margin-bottom: 12px;
+}
+
+.widget .session-leaderboard {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.widget .session-leaderboard-title,
+.widget .session-rank {
+  color: #cfcfcf;
+}
+
+.widget .session-nick {
+  color: var(--fg);
+}
+
+.widget .counters {
+  color: #cfcfcf;
+}
+.widget .counters b {
+  color: var(--fg);
+}
+
+.widget .row {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.widget .row .num,
+.widget .row .nick {
+  color: #d0d0d0;
+}
+
+.widget .row .rank {
+  color: #e0e0e0;
+}
+
+.widget .row.tier-hot .rank {
+  color: var(--tier-hot-fg);
+}
+.widget .row.tier-warm .rank {
+  color: var(--tier-warm-fg);
+}
+.widget .row.tier-cold .rank {
+  color: var(--tier-cold-fg);
+}
+
+.widget .row.win {
+  background: var(--inverse-bg);
+}
+.widget .row.win .word,
+.widget .row.win .rank,
+.widget .row.win .num {
+  color: var(--inverse-fg);
+}
+.widget .row.win .nick {
+  color: var(--inverse-fg);
+  opacity: 1;
+  font-size: 16px;
+  font-weight: 800;
+}
+.widget .row.win .bar {
+  display: none;
+}
+
+.widget-setup {
+  font-size: 14px;
+  color: #d4d4d4;
+  line-height: 1.6;
+}
+.widget-setup code {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  color: var(--fg);
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.widget-setup b {
+  color: var(--fg);
+}

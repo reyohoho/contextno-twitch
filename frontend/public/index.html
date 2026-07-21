@@ -37,6 +37,9 @@
           >
             hands off
           </button>
+          <button id="obs-btn" class="btn btn-outline" type="button">
+            OBS
+          </button>
         </div>
       </header>
 
@@ -209,6 +212,88 @@
         </span>
       </footer>
     </main>
+
+    <div class="modal-overlay" id="obs-modal" hidden>
+      <div
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="obs-modal-title"
+      >
+        <div class="modal-head">
+          <h2 class="modal-title" id="obs-modal-title">виджет для OBS</h2>
+          <button
+            id="obs-modal-close"
+            class="btn btn-ghost"
+            type="button"
+            aria-label="закрыть"
+          >
+            закрыть
+          </button>
+        </div>
+
+        <p class="modal-hint">
+          Добавьте адрес ниже как «Источник → Браузер» в OBS. Виджет сам
+          подключится к чату, загадает слово, дождётся отгадки, покажет
+          победителей и запустит новый раунд.
+        </p>
+
+        <div class="obs-fields">
+          <label class="obs-field">
+            <span class="obs-field-label">канал twitch</span>
+            <input
+              id="obs-channel"
+              class="input"
+              type="text"
+              placeholder="имя канала"
+              autocomplete="off"
+              autocapitalize="off"
+              spellcheck="false"
+            />
+          </label>
+
+          <label class="obs-check">
+            <input type="checkbox" id="obs-sound" />
+            <span>звук при победе</span>
+          </label>
+
+          <label class="obs-field">
+            <span class="obs-field-label">громкость, %</span>
+            <input id="obs-volume" class="input" type="number" min="0" max="1000" value="25" />
+          </label>
+
+          <label class="obs-field">
+            <span class="obs-field-label">показ победителей, сек</span>
+            <input id="obs-delay" class="input" type="number" min="1" max="120" value="8" />
+          </label>
+
+          <label class="obs-field">
+            <span class="obs-field-label">вариантов на экране</span>
+            <input id="obs-rows" class="input" type="number" min="1" max="50" value="12" />
+          </label>
+        </div>
+
+        <div class="obs-url-row">
+          <input id="obs-url" class="input" type="text" readonly aria-label="ссылка на виджет" />
+          <button id="obs-copy" class="btn btn-solid" type="button">копировать</button>
+        </div>
+
+        <div class="obs-actions">
+          <a id="obs-open" class="btn btn-outline" target="_blank" rel="noopener noreferrer">
+            открыть в браузере
+          </a>
+        </div>
+
+        <div class="obs-commands">
+          <h3 class="obs-commands-title">команды в чате (модераторы, владелец)</h3>
+          <ul class="obs-commands-list">
+            <li><code>!context_hint</code> — подсказка</li>
+            <li><code>!context_restart</code> — сдаться и показать слово</li>
+            <li><code>!context_reload</code> — перезагрузить виджет</li>
+          </ul>
+        </div>
+      </div>
+    </div>
 
     <script src="/app.js"></script>
   </body>
