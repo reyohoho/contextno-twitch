@@ -4,6 +4,9 @@ const API = "/api";
 const AUTHOR_ID_KEY = "contextnorf:author_id";
 const TWITCH_CHANNEL_KEY = "contextnorf:twitch_channel";
 const HANDS_OFF_KEY = "contextnorf:hands_off";
+const WINNERS_ALLTIME_KEY = "contextnorf:winners";
+const WINNERS_TODAY_KEY = "contextnorf:winners_today";
+const LEGACY_WINNERS_KEY = "contextnorf:session_wins";
 const WIN_SOUND_KEY = "contextnorf:win_sound";
 const SOUND_VOLUME_KEY = "contextnorf:sound_volume";
 
@@ -24,6 +27,7 @@ const state = {
   autoRestartTimer: null,
   winnerWinsAlltime: new Map(),
   winnerWinsToday: new Map(),
+  winnerWinsTodayDate: "",
   roundHasWord: false,
   winSound: true,
   soundVolume: DEFAULT_SOUND_VOLUME,
@@ -472,6 +476,7 @@ function parseChatCommand(text) {
   if (cmd === "!context_hint") return "hint";
   if (cmd === "!context_restart") return "restart";
   if (cmd === "!context_reload") return "reload";
+  if (cmd === "!context_reset_stats") return "reset_stats";
   return null;
 }
 
@@ -485,179 +490,119 @@ function reloadPagePreservingSettings() {
   location.reload();
 }
 
-function mapFromObj(obj) {
-  if (!obj || typeof obj !== "object") return new Map();
-  return new Map(Object.entries(obj).map(([k, v]) => [k, Number(v) || 0]));
-}
-
-function applyWinnersSnapshot(data) {
-  state.winnerWinsAlltime = mapFromObj(data && data.alltime);
-  state.winnerWinsToday = mapFromObj(data && data.today && data.today.winners);
-}
-
-const LEGACY_WINNERS_ALLTIME_KEY = "contextnorf:winners";
-const LEGACY_WINNERS_TODAY_KEY = "contextnorf:winners_today";
-const LEGACY_WINNERS_SESSION_KEY = "contextnorf:session_wins";
-const WINNERS_MIGRATED_KEY = "contextnorf:winners_migrated";
-
-function readStorageRaw(key) {
+function parseWinnersMap(raw) {
   try {
-    const v = localStorage.getItem(key);
-    if (v) return v;
-  } catch (_) {}
-  try {
-    const v = sessionStorage.getItem(key);
-    if (v) return v;
-  } catch (_) {}
-  return null;
-}
-
-function parseCountsObj(raw) {
-  try {
-    if (!raw) return {};
+    if (!raw) return new Map();
     const obj = JSON.parse(raw);
-    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return {};
-    const out = {};
-    for (const [nick, value] of Object.entries(obj)) {
-      const n = Number(value) || 0;
-      if (n > 0) out[nick] = n;
-    }
-    return out;
+    if (!obj || typeof obj !== "object") return new Map();
+    return new Map(Object.entries(obj).map(([k, v]) => [k, Number(v) || 0]));
   } catch (_) {
-    return {};
+    return new Map();
   }
 }
 
-function mergeCounts(...maps) {
-  const out = {};
-  for (const map of maps) {
-    for (const [nick, value] of Object.entries(map || {})) {
-      const n = Number(value) || 0;
-      if (n > (out[nick] || 0)) out[nick] = n;
-    }
-  }
-  return out;
+function todayDateKey() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
-function readLegacyWinnersPayload() {
-  const alltime = mergeCounts(
-    parseCountsObj(readStorageRaw(LEGACY_WINNERS_SESSION_KEY)),
-    parseCountsObj(readStorageRaw(LEGACY_WINNERS_ALLTIME_KEY))
-  );
+function syncTodayWinnersDate() {
+  const today = todayDateKey();
+  if (state.winnerWinsTodayDate === today) return;
+  state.winnerWinsTodayDate = today;
+  state.winnerWinsToday = new Map();
+}
 
-  let today = null;
+function loadWinnersAlltime() {
   try {
-    const raw = readStorageRaw(LEGACY_WINNERS_TODAY_KEY);
+    const raw = localStorage.getItem(WINNERS_ALLTIME_KEY);
+    if (raw) return parseWinnersMap(raw);
+  } catch (_) {}
+  try {
+    const legacy =
+      localStorage.getItem(LEGACY_WINNERS_KEY) ||
+      sessionStorage.getItem(LEGACY_WINNERS_KEY) ||
+      sessionStorage.getItem(WINNERS_ALLTIME_KEY);
+    if (legacy) {
+      const map = parseWinnersMap(legacy);
+      saveWinnersAlltime(map);
+      return map;
+    }
+  } catch (_) {}
+  return new Map();
+}
+
+function loadWinnersToday() {
+  const today = todayDateKey();
+  try {
+    const raw = localStorage.getItem(WINNERS_TODAY_KEY);
     if (raw) {
       const data = JSON.parse(raw);
-      if (data && typeof data === "object" && data.date && data.winners) {
-        const winners = parseCountsObj(JSON.stringify(data.winners));
-        if (Object.keys(winners).length) {
-          today = { date: String(data.date), winners };
-        }
+      if (data && data.date === today && data.winners) {
+        return { date: today, map: parseWinnersMap(JSON.stringify(data.winners)) };
       }
     }
   } catch (_) {}
-
-  if (!Object.keys(alltime).length && !today) return null;
-  return { alltime, today };
+  return { date: today, map: new Map() };
 }
 
-function clearLegacyWinnersStorage() {
-  for (const store of [localStorage, sessionStorage]) {
-    try {
-      store.removeItem(LEGACY_WINNERS_ALLTIME_KEY);
-      store.removeItem(LEGACY_WINNERS_TODAY_KEY);
-      store.removeItem(LEGACY_WINNERS_SESSION_KEY);
-    } catch (_) {}
-  }
+function saveWinnersAlltime(map = state.winnerWinsAlltime) {
   try {
-    localStorage.setItem(WINNERS_MIGRATED_KEY, "1");
+    localStorage.setItem(WINNERS_ALLTIME_KEY, JSON.stringify(Object.fromEntries(map)));
   } catch (_) {}
 }
 
-async function migrateLocalWinners(channel) {
-  if (!channel) return null;
+function saveWinnersToday() {
+  syncTodayWinnersDate();
   try {
-    if (localStorage.getItem(WINNERS_MIGRATED_KEY) === "1") return null;
+    localStorage.setItem(
+      WINNERS_TODAY_KEY,
+      JSON.stringify({
+        date: state.winnerWinsTodayDate,
+        winners: Object.fromEntries(state.winnerWinsToday),
+      })
+    );
   } catch (_) {}
-
-  const payload = readLegacyWinnersPayload();
-  if (!payload) {
-    try {
-      localStorage.setItem(WINNERS_MIGRATED_KEY, "1");
-    } catch (_) {}
-    return null;
-  }
-
-  const data = await api(`/winners/${encodeURIComponent(channel)}/import`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-  clearLegacyWinnersStorage();
-  return data;
 }
 
-async function fetchWinners() {
-  const channel = state.twitch.channel;
-  if (!channel) {
-    state.winnerWinsAlltime = new Map();
-    state.winnerWinsToday = new Map();
-    renderWinnersLeaderboards();
-    return;
-  }
-  try {
-    const migrated = await migrateLocalWinners(channel);
-    if (migrated) {
-      applyWinnersSnapshot(migrated);
-    } else {
-      const data = await api(`/winners/${encodeURIComponent(channel)}`);
-      applyWinnersSnapshot(data);
-    }
-  } catch (_) {}
+function recordWinner(nick) {
+  if (!nick) return;
+  state.winnerWinsAlltime.set(nick, (state.winnerWinsAlltime.get(nick) || 0) + 1);
+  syncTodayWinnersDate();
+  state.winnerWinsToday.set(nick, (state.winnerWinsToday.get(nick) || 0) + 1);
+  saveWinnersAlltime();
+  saveWinnersToday();
   renderWinnersLeaderboards();
 }
 
-async function recordWinner(nick) {
-  if (!nick) return;
-  const channel = state.twitch.channel;
-  if (!channel) return;
-  try {
-    const data = await api(`/winners/${encodeURIComponent(channel)}/win`, {
-      method: "POST",
-      body: JSON.stringify({ nick }),
-    });
-    applyWinnersSnapshot(data);
-    renderWinnersLeaderboards();
-  } catch (_) {}
+function resetWinnersAlltime({ skipConfirm = false } = {}) {
+  if (!state.winnerWinsAlltime.size && !skipConfirm) return;
+  if (!skipConfirm && !confirm("сбросить топ за всё время?")) return;
+  state.winnerWinsAlltime = new Map();
+  saveWinnersAlltime();
+  renderWinnersLeaderboards();
 }
 
-async function resetWinners(scope) {
-  const channel = state.twitch.channel;
-  if (!channel) {
-    setStatus("подключитесь к каналу twitch", "error");
-    return;
-  }
-  const label = scope === "alltime" ? "за всё время" : "за сегодня";
-  if (!confirm(`сбросить топ ${label} для #${channel}?`)) return;
-  try {
-    const data = await api(`/winners/${encodeURIComponent(channel)}/reset`, {
-      method: "POST",
-      body: JSON.stringify({ scope }),
-    });
-    applyWinnersSnapshot(data);
-    renderWinnersLeaderboards();
-  } catch (e) {
-    setStatus(e.message, "error");
-  }
+function resetWinnersToday({ skipConfirm = false } = {}) {
+  syncTodayWinnersDate();
+  if (!state.winnerWinsToday.size && !skipConfirm) return;
+  if (!skipConfirm && !confirm("сбросить топ за сегодня?")) return;
+  state.winnerWinsToday = new Map();
+  saveWinnersToday();
+  renderWinnersLeaderboards();
 }
 
-function resetWinnersAlltime() {
-  resetWinners("alltime");
-}
-
-function resetWinnersToday() {
-  resetWinners("today");
+function resetWinnersStats() {
+  state.winnerWinsAlltime = new Map();
+  syncTodayWinnersDate();
+  state.winnerWinsToday = new Map();
+  saveWinnersAlltime();
+  saveWinnersToday();
+  renderWinnersLeaderboards();
+  setStatus("статистика победителей сброшена");
 }
 
 function pluralWinsRu(n) {
@@ -713,6 +658,7 @@ function shouldShowWinnersBoards() {
 }
 
 function renderWinnersLeaderboards() {
+  syncTodayWinnersDate();
   renderOneWinnersBoard(
     $("#winners-today"),
     $("#winners-today-list"),
@@ -753,9 +699,6 @@ function disconnectTwitch() {
   state.twitch.channel = null;
   safeClose(ws);
   setTwitchStatus("disconnected", null);
-  state.winnerWinsAlltime = new Map();
-  state.winnerWinsToday = new Map();
-  renderWinnersLeaderboards();
 }
 
 function connectTwitch(channel) {
@@ -780,7 +723,6 @@ function connectTwitch(channel) {
     if (state.twitch.status !== "connected") {
       setTwitchStatus("connected", channel);
       clearTwitchError();
-      fetchWinners();
     }
   };
 
@@ -823,6 +765,7 @@ function connectTwitch(channel) {
           if (chatCmd === "hint") getTip();
           else if (chatCmd === "restart") giveUp({ skipConfirm: true });
           else if (chatCmd === "reload") reloadPagePreservingSettings();
+          else if (chatCmd === "reset_stats") resetWinnersStats();
           continue;
         }
         const word = extractWord(m.trailing);
@@ -1077,8 +1020,10 @@ function setupObsModal() {
 }
 
 (function init() {
-  state.winnerWinsAlltime = new Map();
-  state.winnerWinsToday = new Map();
+  state.winnerWinsAlltime = loadWinnersAlltime();
+  const todayWinners = loadWinnersToday();
+  state.winnerWinsTodayDate = todayWinners.date;
+  state.winnerWinsToday = todayWinners.map;
   state.handsOff = getSavedHandsOff();
   state.winSound = getSavedWinSound();
   state.soundVolume = getSavedSoundVolume();
@@ -1086,8 +1031,12 @@ function setupObsModal() {
   renderHandsOffBtn();
   renderSoundSettings();
 
-  $("#reset-winners-alltime-btn")?.addEventListener("click", resetWinnersAlltime);
-  $("#reset-winners-today-btn")?.addEventListener("click", resetWinnersToday);
+  $("#reset-winners-alltime-btn")?.addEventListener("click", () =>
+    resetWinnersAlltime()
+  );
+  $("#reset-winners-today-btn")?.addEventListener("click", () =>
+    resetWinnersToday()
+  );
 
   $("#hands-off-btn").addEventListener("click", () => setHandsOff(!state.handsOff));
 

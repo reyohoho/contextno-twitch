@@ -69,6 +69,7 @@ const state = {
   autoRestartTimer: null,
   winnerWinsAlltime: new Map(),
   winnerWinsToday: new Map(),
+  winnerWinsTodayDate: "",
   roundHasWord: false,
   audioCtx: null,
   starting: false,
@@ -244,145 +245,108 @@ function upsertGuess(g) {
   }
 }
 
-/* ---------- winners leaderboards (persisted server-side by channel) ---------- */
+/* ---------- winners leaderboards (localStorage) ---------- */
 
-function mapFromObj(obj) {
-  if (!obj || typeof obj !== "object") return new Map();
-  return new Map(Object.entries(obj).map(([k, v]) => [k, Number(v) || 0]));
-}
+const WINNERS_ALLTIME_KEY = "contextnorf:winners";
+const WINNERS_TODAY_KEY = "contextnorf:winners_today";
+const LEGACY_WINNERS_KEY = "contextnorf:session_wins";
 
-function applyWinnersSnapshot(data) {
-  state.winnerWinsAlltime = mapFromObj(data && data.alltime);
-  state.winnerWinsToday = mapFromObj(data && data.today && data.today.winners);
-}
-
-const LEGACY_WINNERS_ALLTIME_KEY = "contextnorf:winners";
-const LEGACY_WINNERS_TODAY_KEY = "contextnorf:winners_today";
-const LEGACY_WINNERS_SESSION_KEY = "contextnorf:session_wins";
-const WINNERS_MIGRATED_KEY = "contextnorf:winners_migrated";
-
-function readStorageRaw(key) {
+function parseWinnersMap(raw) {
   try {
-    const v = localStorage.getItem(key);
-    if (v) return v;
-  } catch (_) {}
-  try {
-    const v = sessionStorage.getItem(key);
-    if (v) return v;
-  } catch (_) {}
-  return null;
-}
-
-function parseCountsObj(raw) {
-  try {
-    if (!raw) return {};
+    if (!raw) return new Map();
     const obj = JSON.parse(raw);
-    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return {};
-    const out = {};
-    for (const [nick, value] of Object.entries(obj)) {
-      const n = Number(value) || 0;
-      if (n > 0) out[nick] = n;
-    }
-    return out;
+    if (!obj || typeof obj !== "object") return new Map();
+    return new Map(Object.entries(obj).map(([k, v]) => [k, Number(v) || 0]));
   } catch (_) {
-    return {};
+    return new Map();
   }
 }
 
-function mergeCounts(...maps) {
-  const out = {};
-  for (const map of maps) {
-    for (const [nick, value] of Object.entries(map || {})) {
-      const n = Number(value) || 0;
-      if (n > (out[nick] || 0)) out[nick] = n;
-    }
-  }
-  return out;
+function todayDateKey() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
-function readLegacyWinnersPayload() {
-  const alltime = mergeCounts(
-    parseCountsObj(readStorageRaw(LEGACY_WINNERS_SESSION_KEY)),
-    parseCountsObj(readStorageRaw(LEGACY_WINNERS_ALLTIME_KEY))
-  );
+function syncTodayWinnersDate() {
+  const today = todayDateKey();
+  if (state.winnerWinsTodayDate === today) return;
+  state.winnerWinsTodayDate = today;
+  state.winnerWinsToday = new Map();
+}
 
-  let today = null;
+function loadWinnersAlltime() {
   try {
-    const raw = readStorageRaw(LEGACY_WINNERS_TODAY_KEY);
+    const raw = localStorage.getItem(WINNERS_ALLTIME_KEY);
+    if (raw) return parseWinnersMap(raw);
+  } catch (_) {}
+  try {
+    const legacy =
+      localStorage.getItem(LEGACY_WINNERS_KEY) ||
+      sessionStorage.getItem(LEGACY_WINNERS_KEY) ||
+      sessionStorage.getItem(WINNERS_ALLTIME_KEY);
+    if (legacy) {
+      const map = parseWinnersMap(legacy);
+      saveWinnersAlltime(map);
+      return map;
+    }
+  } catch (_) {}
+  return new Map();
+}
+
+function loadWinnersToday() {
+  const today = todayDateKey();
+  try {
+    const raw = localStorage.getItem(WINNERS_TODAY_KEY);
     if (raw) {
       const data = JSON.parse(raw);
-      if (data && typeof data === "object" && data.date && data.winners) {
-        const winners = parseCountsObj(JSON.stringify(data.winners));
-        if (Object.keys(winners).length) {
-          today = { date: String(data.date), winners };
-        }
+      if (data && data.date === today && data.winners) {
+        return { date: today, map: parseWinnersMap(JSON.stringify(data.winners)) };
       }
     }
   } catch (_) {}
-
-  if (!Object.keys(alltime).length && !today) return null;
-  return { alltime, today };
+  return { date: today, map: new Map() };
 }
 
-function clearLegacyWinnersStorage() {
-  for (const store of [localStorage, sessionStorage]) {
-    try {
-      store.removeItem(LEGACY_WINNERS_ALLTIME_KEY);
-      store.removeItem(LEGACY_WINNERS_TODAY_KEY);
-      store.removeItem(LEGACY_WINNERS_SESSION_KEY);
-    } catch (_) {}
-  }
+function saveWinnersAlltime(map = state.winnerWinsAlltime) {
   try {
-    localStorage.setItem(WINNERS_MIGRATED_KEY, "1");
+    localStorage.setItem(WINNERS_ALLTIME_KEY, JSON.stringify(Object.fromEntries(map)));
   } catch (_) {}
 }
 
-async function migrateLocalWinners(channel) {
-  if (!channel) return null;
+function saveWinnersToday() {
+  syncTodayWinnersDate();
   try {
-    if (localStorage.getItem(WINNERS_MIGRATED_KEY) === "1") return null;
-  } catch (_) {}
-
-  const payload = readLegacyWinnersPayload();
-  if (!payload) {
-    try {
-      localStorage.setItem(WINNERS_MIGRATED_KEY, "1");
-    } catch (_) {}
-    return null;
-  }
-
-  const data = await api(`/winners/${encodeURIComponent(channel)}/import`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-  clearLegacyWinnersStorage();
-  return data;
-}
-
-async function fetchWinners() {
-  if (!config.channel) return;
-  try {
-    const migrated = await migrateLocalWinners(config.channel);
-    if (migrated) {
-      applyWinnersSnapshot(migrated);
-    } else {
-      const data = await api(`/winners/${encodeURIComponent(config.channel)}`);
-      applyWinnersSnapshot(data);
-    }
-    renderWinnersLeaderboards();
+    localStorage.setItem(
+      WINNERS_TODAY_KEY,
+      JSON.stringify({
+        date: state.winnerWinsTodayDate,
+        winners: Object.fromEntries(state.winnerWinsToday),
+      })
+    );
   } catch (_) {}
 }
 
-async function recordWinner(nick) {
-  if (!nick || !config.channel) return;
-  try {
-    const data = await api(`/winners/${encodeURIComponent(config.channel)}/win`, {
-      method: "POST",
-      body: JSON.stringify({ nick }),
-    });
-    applyWinnersSnapshot(data);
-    renderWinnersLeaderboards();
-  } catch (_) {}
+function recordWinner(nick) {
+  if (!nick) return;
+  state.winnerWinsAlltime.set(nick, (state.winnerWinsAlltime.get(nick) || 0) + 1);
+  syncTodayWinnersDate();
+  state.winnerWinsToday.set(nick, (state.winnerWinsToday.get(nick) || 0) + 1);
+  saveWinnersAlltime();
+  saveWinnersToday();
+  renderWinnersLeaderboards();
+}
+
+function resetWinnersStats() {
+  state.winnerWinsAlltime = new Map();
+  syncTodayWinnersDate();
+  state.winnerWinsToday = new Map();
+  saveWinnersAlltime();
+  saveWinnersToday();
+  renderWinnersLeaderboards();
+  setStatus("статистика победителей сброшена");
 }
 
 function pluralWinsRu(n) {
@@ -421,13 +385,12 @@ function shouldShowWinnersBoards() {
   if (state.winnerWinsToday.size === 0 && state.winnerWinsAlltime.size === 0) {
     return false;
   }
-  // Show the boards between rounds: after a win/give-up, or before the first
-  // guess of a new round.
   if (state.won) return true;
   return !!state.game && !state.roundHasWord;
 }
 
 function renderWinnersLeaderboards() {
+  syncTodayWinnersDate();
   renderOneWinnersBoard($("#winners-today"), $("#winners-today-list"), state.winnerWinsToday);
   renderOneWinnersBoard($("#winners-alltime"), $("#winners-alltime-list"), state.winnerWinsAlltime);
   const wrap = $("#winners-boards");
@@ -631,6 +594,7 @@ function parseChatCommand(text) {
   if (cmd === "!context_hint") return "hint";
   if (cmd === "!context_restart") return "restart";
   if (cmd === "!context_reload") return "reload";
+  if (cmd === "!context_reset_stats") return "reset_stats";
   return null;
 }
 
@@ -646,7 +610,6 @@ function connectTwitch(channel) {
   const markConnected = () => {
     if (state.twitch.status !== "connected") {
       setTwitchStatus("connected", channel);
-      fetchWinners();
     }
   };
 
@@ -677,6 +640,7 @@ function connectTwitch(channel) {
           if (chatCmd === "hint") getTip();
           else if (chatCmd === "restart") giveUp();
           else if (chatCmd === "reload") location.reload();
+          else if (chatCmd === "reset_stats") resetWinnersStats();
           continue;
         }
         const word = extractWord(m.trailing);
@@ -722,11 +686,17 @@ function showSetupHelp() {
     <b>Команды в чате (модераторы, владелец):</b><br />
     <code>!context_hint</code> — подсказка<br />
     <code>!context_restart</code> — сдаться и показать слово<br />
-    <code>!context_reload</code> — перезагрузить виджет
+    <code>!context_reload</code> — перезагрузить виджет<br />
+    <code>!context_reset_stats</code> — сбросить статистику победителей
   `;
 }
 
 (function init() {
+  state.winnerWinsAlltime = loadWinnersAlltime();
+  const today = loadWinnersToday();
+  state.winnerWinsTodayDate = today.date;
+  state.winnerWinsToday = today.map;
+
   if (!config.channel) {
     setStatus("укажите канал в query-параметрах", "error");
     $("#twitch-led")?.remove();
@@ -734,7 +704,6 @@ function showSetupHelp() {
     return;
   }
 
-  fetchWinners();
   connectTwitch(config.channel);
   startRound();
 })();
