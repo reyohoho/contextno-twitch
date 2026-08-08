@@ -268,11 +268,16 @@ body {
   font-size: 13px;
   color: var(--muted);
   margin-bottom: 12px;
+  flex-wrap: wrap;
 }
 .counters b {
   color: var(--fg);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+}
+.counter-mode b {
+  font-variant-numeric: normal;
+  font-weight: 700;
 }
 
 .secret-form {
@@ -296,7 +301,7 @@ body {
 }
 .secret-display {
   position: absolute;
-  inset: 0;
+  inset: 0 44px 0 0;
   display: flex;
   align-items: center;
   padding: 10px 12px;
@@ -306,12 +311,19 @@ body {
   font-size: 16px;
   letter-spacing: normal;
   z-index: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .secret-display.has-value {
   color: var(--fg);
   font-size: 22px;
   letter-spacing: 0.05em;
   font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+.secret-display.has-value.revealed {
+  font-size: 16px;
+  letter-spacing: normal;
 }
 .secret-display.focused::after {
   content: "";
@@ -333,6 +345,7 @@ body {
 .input-secret {
   position: relative;
   width: 100%;
+  padding-right: 44px;
   font-family: "JetBrains Mono", ui-monospace, monospace;
   color: transparent;
   caret-color: transparent;
@@ -343,6 +356,38 @@ body {
 }
 .input-secret:focus {
   outline: 2px solid var(--fg);
+}
+.secret-reveal-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+.secret-reveal-btn:hover,
+.secret-reveal-btn:focus-visible {
+  color: var(--fg);
+  outline: 1px solid var(--fg);
+  outline-offset: 0;
+}
+.secret-reveal-btn[aria-pressed="true"] {
+  color: var(--fg);
+}
+.secret-reveal-icon {
+  width: 20px;
+  height: 20px;
+  display: block;
 }
 
 .secret-history-list {

@@ -134,6 +134,7 @@
       <section class="counters" id="counters" hidden>
         <span><b id="counter-guesses">0</b>&nbsp;попыток</span>
         <span><b id="counter-tips">0</b>&nbsp;подсказок</span>
+        <span class="counter-mode">Режим:&nbsp;<b id="counter-mode">—</b></span>
       </section>
 
       <form class="secret-form" id="secret-form" hidden autocomplete="off">
@@ -157,13 +158,31 @@
             data-form-type="other"
             aria-label="секретное слово"
           />
+          <button
+            id="secret-reveal-btn"
+            class="secret-reveal-btn"
+            type="button"
+            aria-label="показать слово"
+            aria-pressed="false"
+            title="показать слово"
+          >
+            <svg class="secret-reveal-icon secret-reveal-icon-show" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M12 5c-5 0-9.27 3.11-11 7.5C2.73 16.89 7 20 12 20s9.27-3.11 11-7.5C21.27 8.11 17 5 12 5zm0 12.5a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"
+              />
+            </svg>
+            <svg class="secret-reveal-icon secret-reveal-icon-hide" viewBox="0 0 24 24" aria-hidden="true" hidden>
+              <path
+                fill="currentColor"
+                d="M12 5c-1.1 0-2.16.2-3.14.55l1.62 1.62A5 5 0 0 1 17 12c0 .4-.05.78-.14 1.15l1.72 1.72C20.4 13.5 21.5 12 22 12.5 20.27 8.11 16 5 12 5zm-9.5.5L1.1 6.9l3.05 3.05C2.7 11.2 1.7 12.4 1 12.5 2.73 16.89 7 20 12 20c1.6 0 3.1-.35 4.45-.97l2.65 2.65 1.4-1.4L2.5 5.5zM12 17.5a5 5 0 0 1-4.7-3.35l1.6 1.6A3 3 0 0 0 14 13.05l1.55 1.55A4.97 4.97 0 0 1 12 17.5z"
+              />
+            </svg>
+          </button>
         </div>
         <button class="btn btn-solid" type="submit">старт</button>
         <button class="btn btn-outline" type="button" id="secret-history-btn">
           история
-        </button>
-        <button class="btn btn-outline" type="button" id="secret-cancel">
-          отмена
         </button>
       </form>
 

@@ -31,6 +31,8 @@ const state = {
   winnerWinsToday: new Map(),
   winnerWinsTodayDate: "",
   roundHasWord: false,
+  gameKind: "random", // random | custom
+  secretRevealed: false,
   winSound: true,
   soundVolume: DEFAULT_SOUND_VOLUME,
   secretHistory: [],
@@ -106,7 +108,7 @@ function setMode(mode) {
   if (mode === "secret") {
     blocks.secret.hidden = false;
     blocks.guess.hidden = false;
-    updateSecretDisplay();
+    setSecretRevealed(false);
     setTimeout(() => $("#secret-input").focus(), 0);
     return;
   }
@@ -134,12 +136,41 @@ function setMode(mode) {
 function updateSecretDisplay() {
   const input = $("#secret-input");
   const display = $("#secret-display");
+  const btn = $("#secret-reveal-btn");
   if (!input || !display) return;
   const hasValue = !!input.value;
   const focused = document.activeElement === input;
-  display.textContent = hasValue ? "●" : "введите своё слово";
+  const revealed = state.secretRevealed && hasValue;
+
+  if (!hasValue) {
+    display.textContent = "введите своё слово";
+  } else if (revealed) {
+    display.textContent = input.value;
+  } else {
+    display.textContent = "●";
+  }
+
   display.classList.toggle("has-value", hasValue);
+  display.classList.toggle("revealed", revealed);
   display.classList.toggle("focused", focused);
+
+  if (btn) {
+    btn.setAttribute("aria-pressed", state.secretRevealed ? "true" : "false");
+    btn.setAttribute(
+      "aria-label",
+      state.secretRevealed ? "скрыть слово" : "показать слово"
+    );
+    btn.title = state.secretRevealed ? "скрыть слово" : "показать слово";
+    const showIcon = btn.querySelector(".secret-reveal-icon-show");
+    const hideIcon = btn.querySelector(".secret-reveal-icon-hide");
+    if (showIcon) showIcon.hidden = state.secretRevealed;
+    if (hideIcon) hideIcon.hidden = !state.secretRevealed;
+  }
+}
+
+function setSecretRevealed(revealed) {
+  state.secretRevealed = !!revealed;
+  updateSecretDisplay();
 }
 
 function loadSecretHistory() {
@@ -290,6 +321,16 @@ function updateCounters() {
   const guesses = state.guesses.filter((g) => !g.tip).length;
   $("#counter-guesses").textContent = String(guesses);
   $("#counter-tips").textContent = String(state.tipsUsed);
+  const modeEl = $("#counter-mode");
+  if (modeEl) modeEl.textContent = currentModeLabel();
+}
+
+function currentModeLabel() {
+  if (state.gameKind === "custom") {
+    return state.handsOff ? "своё слово · автоигра" : "своё слово";
+  }
+  if (state.handsOff) return "автоигра";
+  return "случайное слово";
 }
 
 function rankTier(rank) {
@@ -370,6 +411,7 @@ function upsertGuess(g) {
 async function startGame({ secret = null } = {}) {
   cancelAutoRestart();
   resetBoard();
+  state.gameKind = secret ? "custom" : "random";
   setStatus(secret ? "публикация..." : "новая случайная игра...");
   try {
     const body = { mode: "random", secret };
@@ -384,7 +426,7 @@ async function startGame({ secret = null } = {}) {
 
     if (secret) {
       rememberSecretWord(secret);
-      setStatus("игра началась");
+      setStatus("игра началась · своё слово");
     } else if (data.challenge && data.challenge.name) {
       setStatus(`${data.challenge.name} (${data.challenge.challenge_type})`);
     } else {
@@ -974,6 +1016,7 @@ function setHandsOff(enabled) {
   state.handsOff = enabled;
   saveHandsOff(enabled);
   renderHandsOffBtn();
+  updateCounters();
   if (enabled) {
     if (wasOff) startGame();
   } else {
@@ -1163,20 +1206,13 @@ function setupObsModal() {
   $("#custom-btn").addEventListener("click", () => {
     setMode("secret");
     setStatus("введите своё слово (на экране одна ● — длина не видна)");
-    updateSecretDisplay();
-  });
-
-  $("#secret-cancel").addEventListener("click", () => {
-    $("#secret-input").value = "";
-    updateSecretDisplay();
-    startGame();
   });
 
   $("#secret-form").addEventListener("submit", (ev) => {
     ev.preventDefault();
     const w = $("#secret-input").value.trim();
     $("#secret-input").value = "";
-    updateSecretDisplay();
+    setSecretRevealed(false);
     if (!w) {
       setStatus("введите слово", "error");
       return;
@@ -1188,7 +1224,16 @@ function setupObsModal() {
   secretInput?.addEventListener("input", updateSecretDisplay);
   secretInput?.addEventListener("focus", updateSecretDisplay);
   secretInput?.addEventListener("blur", updateSecretDisplay);
-  $("#secret-wrap")?.addEventListener("click", () => secretInput?.focus());
+  $("#secret-reveal-btn")?.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    setSecretRevealed(!state.secretRevealed);
+    secretInput?.focus();
+  });
+  $("#secret-wrap")?.addEventListener("click", (ev) => {
+    if (ev.target.closest("#secret-reveal-btn")) return;
+    secretInput?.focus();
+  });
 
   $("#guess-form").addEventListener("submit", submitGuess);
   $("#tip-btn").addEventListener("click", getTip);
