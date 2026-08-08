@@ -94,7 +94,6 @@ body {
   padding: 10px 16px;
   border: 1.5px solid var(--fg);
   cursor: pointer;
-  text-transform: lowercase;
   background: transparent;
   color: var(--fg);
   transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
@@ -281,23 +280,114 @@ body {
   gap: 8px;
   margin-bottom: 18px;
   flex-wrap: wrap;
+  align-items: center;
 }
-.secret-form .input {
+.secret-input-wrap {
+  position: relative;
   flex: 1 1 220px;
+  min-width: 0;
+}
+.secret-form > .btn {
+  flex: 0 0 auto;
+  align-self: center;
+  height: auto;
+  padding: 10px 16px;
+  line-height: 1.4;
+}
+.secret-display {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  pointer-events: none;
+  color: var(--muted);
+  font-family: "Roboto", "Helvetica", "Arial", sans-serif;
+  font-size: 16px;
+  letter-spacing: normal;
+  z-index: 1;
+}
+.secret-display.has-value {
+  color: var(--fg);
+  font-size: 22px;
+  letter-spacing: 0.05em;
   font-family: "JetBrains Mono", ui-monospace, monospace;
 }
-
+.secret-display.focused::after {
+  content: "";
+  width: 2px;
+  height: 1.1em;
+  margin-left: 6px;
+  background: var(--fg);
+  flex-shrink: 0;
+  animation: secret-caret 1s step-end infinite;
+}
+.secret-display:not(.has-value).focused::after {
+  margin-left: 2px;
+}
+@keyframes secret-caret {
+  50% {
+    opacity: 0;
+  }
+}
 .input-secret {
-  -webkit-text-security: disc;
-  -moz-text-security: disc;
-  text-security: disc;
-  letter-spacing: 0.25em;
+  position: relative;
+  width: 100%;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  color: transparent;
+  caret-color: transparent;
+  -webkit-text-fill-color: transparent;
 }
 .input-secret::placeholder {
-  -webkit-text-security: none;
-  text-security: none;
-  letter-spacing: normal;
-  font-family: "Roboto", "Helvetica", "Arial", sans-serif;
+  color: transparent;
+}
+.input-secret:focus {
+  outline: 2px solid var(--fg);
+}
+
+.secret-history-list {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.secret-history-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  background: var(--soft);
+  border: 1px solid var(--line);
+  padding: 10px 12px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.secret-history-item:hover,
+.secret-history-item:focus-visible {
+  border-color: var(--fg);
+  outline: none;
+  background: rgba(255, 255, 255, 0.06);
+}
+.secret-history-empty {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.secret-history-actions {
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
 }
 
 .game-actions {
@@ -599,7 +689,6 @@ body {
   font-size: 20px;
   font-weight: 900;
   letter-spacing: 0.04em;
-  text-transform: lowercase;
 }
 
 .modal-hint {

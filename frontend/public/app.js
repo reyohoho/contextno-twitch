@@ -7,6 +7,7 @@ const HANDS_OFF_KEY = "contextnorf:hands_off";
 const WINNERS_ALLTIME_KEY = "contextnorf:winners";
 const WINNERS_TODAY_KEY = "contextnorf:winners_today";
 const LEGACY_WINNERS_KEY = "contextnorf:session_wins";
+const SECRET_HISTORY_KEY = "contextnorf:secret_history";
 const WIN_SOUND_KEY = "contextnorf:win_sound";
 const SOUND_VOLUME_KEY = "contextnorf:sound_volume";
 
@@ -14,6 +15,7 @@ const PRIVILEGED_CHAT_LOGINS = new Set(["olegsvs"]);
 
 const HANDS_OFF_DELAY = 10;
 const DEFAULT_SOUND_VOLUME = 0.5;
+const SECRET_HISTORY_MAX = 30;
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -31,6 +33,7 @@ const state = {
   roundHasWord: false,
   winSound: true,
   soundVolume: DEFAULT_SOUND_VOLUME,
+  secretHistory: [],
 };
 
 function uuidv4() {
@@ -103,6 +106,7 @@ function setMode(mode) {
   if (mode === "secret") {
     blocks.secret.hidden = false;
     blocks.guess.hidden = false;
+    updateSecretDisplay();
     setTimeout(() => $("#secret-input").focus(), 0);
     return;
   }
@@ -125,6 +129,109 @@ function setMode(mode) {
     blocks.restart.hidden = false;
     return;
   }
+}
+
+function updateSecretDisplay() {
+  const input = $("#secret-input");
+  const display = $("#secret-display");
+  if (!input || !display) return;
+  const hasValue = !!input.value;
+  const focused = document.activeElement === input;
+  display.textContent = hasValue ? "●" : "введите своё слово";
+  display.classList.toggle("has-value", hasValue);
+  display.classList.toggle("focused", focused);
+}
+
+function loadSecretHistory() {
+  try {
+    const raw = localStorage.getItem(SECRET_HISTORY_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .map((w) => String(w || "").trim().toLowerCase())
+      .filter(Boolean)
+      .slice(0, SECRET_HISTORY_MAX);
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveSecretHistory(list = state.secretHistory) {
+  try {
+    localStorage.setItem(SECRET_HISTORY_KEY, JSON.stringify(list));
+  } catch (_) {}
+}
+
+function rememberSecretWord(word) {
+  word = (word || "").trim().toLowerCase();
+  if (!word) return;
+  state.secretHistory = [
+    word,
+    ...state.secretHistory.filter((w) => w !== word),
+  ].slice(0, SECRET_HISTORY_MAX);
+  saveSecretHistory();
+}
+
+function clearSecretHistory() {
+  if (!state.secretHistory.length) return;
+  if (!confirm("очистить историю своих слов?")) return;
+  state.secretHistory = [];
+  saveSecretHistory();
+  renderSecretHistory();
+}
+
+function openSecretHistoryModal() {
+  renderSecretHistory();
+  const modal = $("#secret-history-modal");
+  if (modal) modal.hidden = false;
+}
+
+function closeSecretHistoryModal() {
+  const modal = $("#secret-history-modal");
+  if (modal) modal.hidden = true;
+}
+
+function renderSecretHistory() {
+  const list = $("#secret-history-list");
+  const empty = $("#secret-history-empty");
+  const clearBtn = $("#secret-history-clear");
+  if (!list) return;
+
+  list.innerHTML = "";
+  const hasItems = state.secretHistory.length > 0;
+  if (empty) empty.hidden = hasItems;
+  if (clearBtn) clearBtn.hidden = !hasItems;
+
+  for (const word of state.secretHistory) {
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "secret-history-item";
+    btn.textContent = word;
+    btn.title = `загадать снова: ${word}`;
+    btn.addEventListener("click", () => {
+      closeSecretHistoryModal();
+      startGame({ secret: word });
+    });
+    li.appendChild(btn);
+    list.appendChild(li);
+  }
+}
+
+function setupSecretHistoryModal() {
+  const modal = $("#secret-history-modal");
+  if (!modal) return;
+
+  $("#secret-history-btn")?.addEventListener("click", openSecretHistoryModal);
+  $("#secret-history-modal-close")?.addEventListener("click", closeSecretHistoryModal);
+  $("#secret-history-clear")?.addEventListener("click", clearSecretHistory);
+  modal.addEventListener("click", (ev) => {
+    if (ev.target === modal) closeSecretHistoryModal();
+  });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape" && !modal.hidden) closeSecretHistoryModal();
+  });
 }
 
 function resetBoard() {
@@ -276,6 +383,7 @@ async function startGame({ secret = null } = {}) {
     setMode("playing");
 
     if (secret) {
+      rememberSecretWord(secret);
       setStatus("игра началась");
     } else if (data.challenge && data.challenge.name) {
       setStatus(`${data.challenge.name} (${data.challenge.challenge_type})`);
@@ -1024,6 +1132,7 @@ function setupObsModal() {
   const todayWinners = loadWinnersToday();
   state.winnerWinsTodayDate = todayWinners.date;
   state.winnerWinsToday = todayWinners.map;
+  state.secretHistory = loadSecretHistory();
   state.handsOff = getSavedHandsOff();
   state.winSound = getSavedWinSound();
   state.soundVolume = getSavedSoundVolume();
@@ -1037,6 +1146,7 @@ function setupObsModal() {
   $("#reset-winners-today-btn")?.addEventListener("click", () =>
     resetWinnersToday()
   );
+  setupSecretHistoryModal();
 
   $("#hands-off-btn").addEventListener("click", () => setHandsOff(!state.handsOff));
 
@@ -1052,11 +1162,13 @@ function setupObsModal() {
 
   $("#custom-btn").addEventListener("click", () => {
     setMode("secret");
-    setStatus("введите своё слово (видно только вам)");
+    setStatus("введите своё слово (на экране одна ● — длина не видна)");
+    updateSecretDisplay();
   });
 
   $("#secret-cancel").addEventListener("click", () => {
     $("#secret-input").value = "";
+    updateSecretDisplay();
     startGame();
   });
 
@@ -1064,12 +1176,19 @@ function setupObsModal() {
     ev.preventDefault();
     const w = $("#secret-input").value.trim();
     $("#secret-input").value = "";
+    updateSecretDisplay();
     if (!w) {
       setStatus("введите слово", "error");
       return;
     }
     startGame({ secret: w });
   });
+
+  const secretInput = $("#secret-input");
+  secretInput?.addEventListener("input", updateSecretDisplay);
+  secretInput?.addEventListener("focus", updateSecretDisplay);
+  secretInput?.addEventListener("blur", updateSecretDisplay);
+  $("#secret-wrap")?.addEventListener("click", () => secretInput?.focus());
 
   $("#guess-form").addEventListener("submit", submitGuess);
   $("#tip-btn").addEventListener("click", getTip);

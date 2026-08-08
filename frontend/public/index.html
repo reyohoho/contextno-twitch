@@ -36,10 +36,10 @@
 !context_reload — перезагрузить страницу
 !context_reset_stats — сбросить статистику победителей"
           >
-            hands off
+            автоигра
           </button>
           <button id="obs-btn" class="btn btn-outline" type="button">
-            OBS
+            Виджет для OBS
           </button>
         </div>
       </header>
@@ -137,23 +137,31 @@
       </section>
 
       <form class="secret-form" id="secret-form" hidden autocomplete="off">
-        <input
-          id="secret-input"
-          class="input input-secret"
-          type="text"
-          inputmode="text"
-          placeholder="введите своё слово"
-          autocomplete="off"
-          autocorrect="off"
-          autocapitalize="off"
-          spellcheck="false"
-          name="contextno-secret"
-          data-1p-ignore="true"
-          data-lpignore="true"
-          data-form-type="other"
-          aria-label="секретное слово"
-        />
+        <div class="secret-input-wrap" id="secret-wrap">
+          <span class="secret-display" id="secret-display" aria-hidden="true"
+            >введите своё слово</span
+          >
+          <input
+            id="secret-input"
+            class="input input-secret"
+            type="text"
+            inputmode="text"
+            placeholder=""
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+            name="contextno-secret"
+            data-1p-ignore="true"
+            data-lpignore="true"
+            data-form-type="other"
+            aria-label="секретное слово"
+          />
+        </div>
         <button class="btn btn-solid" type="submit">старт</button>
+        <button class="btn btn-outline" type="button" id="secret-history-btn">
+          история
+        </button>
         <button class="btn btn-outline" type="button" id="secret-cancel">
           отмена
         </button>
@@ -293,6 +301,45 @@
             <li><code>!context_reload</code> — перезагрузить виджет</li>
             <li><code>!context_reset_stats</code> — сбросить статистику победителей</li>
           </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="secret-history-modal" hidden>
+      <div
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="secret-history-modal-title"
+      >
+        <div class="modal-head">
+          <h2 class="modal-title" id="secret-history-modal-title">история своих слов</h2>
+          <button
+            id="secret-history-modal-close"
+            class="btn btn-ghost"
+            type="button"
+            aria-label="закрыть"
+          >
+            закрыть
+          </button>
+        </div>
+
+        <p class="modal-hint">
+          Нажмите на слово, чтобы загадать его снова.
+        </p>
+
+        <ul class="secret-history-list" id="secret-history-list"></ul>
+        <p class="secret-history-empty" id="secret-history-empty">пока пусто</p>
+
+        <div class="secret-history-actions">
+          <button
+            id="secret-history-clear"
+            class="btn btn-ghost"
+            type="button"
+            hidden
+          >
+            очистить историю
+          </button>
         </div>
       </div>
     </div>
