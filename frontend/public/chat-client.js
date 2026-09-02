@@ -230,7 +230,7 @@
   function createChatSession(handlers) {
     const autoReconnect = handlers.autoReconnect !== false;
     const state = {
-      server: "twitch",
+      server: "",
       channel: null,
       status: "disconnected",
       pollTimer: null,
@@ -256,6 +256,7 @@
     let wakeBound = false;
 
     function emitStatus() {
+      if (!SERVER_IDS.has(state.server)) return;
       handlers.onStatus &&
         handlers.onStatus(state.status, state.server, state.channel);
     }
@@ -524,9 +525,9 @@
       wantLive = true;
       startWatchdog();
       bindWake();
+      state.server = server;
       disconnect();
       const generation = state.generation;
-      state.server = server;
       state.channel = channel;
       state.status = "connecting";
       state.connectingSince = Date.now();
