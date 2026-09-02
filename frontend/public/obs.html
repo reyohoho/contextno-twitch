@@ -11,14 +11,14 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Roboto:wght@400;500;700;900&display=swap"
     />
-    <link rel="stylesheet" href="/style.css" />
-    <link rel="stylesheet" href="/obs.css" />
+    <link rel="stylesheet" href="/style.css?v=20260902e" />
+    <link rel="stylesheet" href="/obs.css?v=20260902e" />
   </head>
   <body class="obs">
     <main class="widget" id="widget">
       <header class="widget-header">
         <h1 class="widget-title">КОНТЕКСТ</h1>
-        <span class="widget-led" id="twitch-led" aria-hidden="true"></span>
+        <div class="widget-chats" id="chat-leds" aria-hidden="true"></div>
       </header>
 
       <section class="widget-status" id="status">загрузка...</section>
@@ -50,6 +50,7 @@
       <section class="widget-setup" id="widget-setup" hidden></section>
     </main>
 
-    <script src="/obs.js"></script>
+    <script src="/chat-client.js?v=20260902e"></script>
+    <script src="/obs.js?v=20260902e"></script>
   </body>
 </html>

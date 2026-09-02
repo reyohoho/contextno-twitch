@@ -4,17 +4,18 @@
  * OBS browser-source widget for the "Контекст" game.
  *
  * Query parameters:
- *   channel  — twitch channel name (required)         e.g. ?channel=olegsvs
+ *   twitch / vkvideo / kick / wtv — каналы платформ, можно несколько сразу
+ *                                   e.g. ?twitch=olegsvs&vkvideo=foo&kick=bar
+ *   channel  — legacy: один канал (вместе с server)
+ *   server   — legacy: twitch | vkvideo | kick | wtv (default twitch)
  *   sound    — win sound on/off (default: off)         &sound=1
  *   volume   — win sound volume in percent (def: 25)    &volume=25
- *              (values above 100 are boosted via WebAudio gain)
  *   delay    — seconds winners stay on screen after a   &delay=8
- *              win before the next round (default: 8)
  *   rows     — max guesses shown on screen (default 12) &rows=12
  *
- * Behaviour: on load the widget connects to the channel chat, auto-rolls a
+ * Behaviour: on load the widget connects to all given chats, auto-rolls a
  * random word, chat guesses it, then after `delay` seconds the winners are
- * shown and a fresh round starts automatically — no page interaction needed.
+ * shown and a fresh round starts automatically.
  */
 
 const API = "/api";
@@ -49,8 +50,10 @@ function readConfig() {
     return Math.max(min, v);
   };
 
+  const chats = ChatClient.parseChatsFromSearch(p);
+
   return {
-    channel: (p.get("channel") || "").trim().toLowerCase().replace(/^#/, ""),
+    chats,
     sound: boolParam("sound", false),
     volume: numParam("volume", DEFAULT_VOLUME, { min: 0, scale: 0.01 }),
     delay: intParam("delay", DEFAULT_DELAY, { min: 1 }),
@@ -65,11 +68,12 @@ const state = {
   guesses: [],
   won: false,
   tipsUsed: 0,
-  twitch: { ws: null, channel: null, status: "disconnected" },
+  chat: { errors: {} },
   autoRestartTimer: null,
   winnerWinsAlltime: new Map(),
   winnerWinsToday: new Map(),
   winnerWinsTodayDate: "",
+  winnerPlatforms: new Map(),
   roundHasWord: false,
   audioCtx: null,
   starting: false,
@@ -107,9 +111,9 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
-function setWinStatus(word, nick = null, extra = "") {
+function setWinStatus(word, nick = null, extra = "", platform = null) {
   const nickHtml = nick
-    ? ` · <span class="win-nick">@${escapeHtml(nick)}</span>`
+    ? ` · <span class="win-nick">${ChatClient.nickHtml(nick, platform)}</span>`
     : "";
   const extraHtml = extra ? ` · ${escapeHtml(extra)}` : "";
   setStatus(
@@ -199,12 +203,7 @@ function rowEl(g, num, opts = {}) {
     <span class="bar" style="width:${(closeness * 100).toFixed(1)}%"></span>
   `;
   el.querySelector(".word").textContent = g.word;
-  const nickEl = el.querySelector(".nick");
-  if (g.nick) {
-    nickEl.textContent = "@" + g.nick;
-  } else {
-    nickEl.hidden = true;
-  }
+  ChatClient.fillNickEl(el.querySelector(".nick"), g.nick, g.platform);
   return el;
 }
 
@@ -237,10 +236,11 @@ function render({ freshWord } = {}) {
 function upsertGuess(g) {
   const i = state.guesses.findIndex((x) => x.word === g.word);
   const rec = { word: g.word, rank: g.rank, tip: !!g.tip };
+  if (g.nick) rec.nick = g.nick;
+  if (g.platform) rec.platform = g.platform;
   if (i >= 0) {
     state.guesses[i] = { ...state.guesses[i], ...rec };
   } else {
-    if (g.nick) rec.nick = g.nick;
     state.guesses.push(rec);
   }
 }
@@ -250,6 +250,7 @@ function upsertGuess(g) {
 const WINNERS_ALLTIME_KEY = "contextnorf:winners";
 const WINNERS_TODAY_KEY = "contextnorf:winners_today";
 const LEGACY_WINNERS_KEY = "contextnorf:session_wins";
+const WINNERS_PLATFORMS_KEY = "contextnorf:winner_platforms";
 
 function parseWinnersMap(raw) {
   try {
@@ -329,11 +330,40 @@ function saveWinnersToday() {
   } catch (_) {}
 }
 
-function recordWinner(nick) {
+function loadWinnerPlatforms() {
+  try {
+    const raw = localStorage.getItem(WINNERS_PLATFORMS_KEY);
+    if (!raw) return new Map();
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== "object") return new Map();
+    return new Map(
+      Object.entries(obj).filter(([_, server]) =>
+        ChatClient.CHAT_SERVERS.some((s) => s.id === server)
+      )
+    );
+  } catch (_) {
+    return new Map();
+  }
+}
+
+function saveWinnerPlatforms(map = state.winnerPlatforms) {
+  try {
+    localStorage.setItem(
+      WINNERS_PLATFORMS_KEY,
+      JSON.stringify(Object.fromEntries(map))
+    );
+  } catch (_) {}
+}
+
+function recordWinner(nick, platform) {
   if (!nick) return;
   state.winnerWinsAlltime.set(nick, (state.winnerWinsAlltime.get(nick) || 0) + 1);
   syncTodayWinnersDate();
   state.winnerWinsToday.set(nick, (state.winnerWinsToday.get(nick) || 0) + 1);
+  if (platform && ChatClient.CHAT_SERVERS.some((s) => s.id === platform)) {
+    state.winnerPlatforms.set(nick, platform);
+    saveWinnerPlatforms();
+  }
   saveWinnersAlltime();
   saveWinnersToday();
   renderWinnersLeaderboards();
@@ -343,8 +373,10 @@ function resetWinnersStats() {
   state.winnerWinsAlltime = new Map();
   syncTodayWinnersDate();
   state.winnerWinsToday = new Map();
+  state.winnerPlatforms = new Map();
   saveWinnersAlltime();
   saveWinnersToday();
+  saveWinnerPlatforms();
   renderWinnersLeaderboards();
   setStatus("статистика победителей сброшена");
 }
@@ -373,9 +405,14 @@ function renderOneWinnersBoard(section, list, map) {
     li.className = "session-leaderboard-row";
     li.innerHTML = `
       <span class="session-rank">${i + 1}</span>
-      <span class="session-nick">@${nick}</span>
+      <span class="session-nick"></span>
       <span class="session-wins" title="${fmtInt(wins)} ${pluralWinsRu(wins)}">${fmtInt(wins)}</span>
     `;
+    ChatClient.fillNickEl(
+      li.querySelector(".session-nick"),
+      nick,
+      state.winnerPlatforms.get(nick)
+    );
     list.appendChild(li);
   }
   section.hidden = false;
@@ -412,14 +449,14 @@ function cancelAutoRestartTimer() {
   }
 }
 
-function scheduleAutoRestart(wordOrMsg, nick) {
+function scheduleAutoRestart(wordOrMsg, nick, platform) {
   cancelAutoRestartTimer();
   renderWinnersLeaderboards();
   let remaining = config.delay;
   const useWinStatus = arguments.length >= 2;
   const tick = () => {
     const extra = `новый раунд через ${remaining} сек`;
-    if (useWinStatus) setWinStatus(wordOrMsg, nick, extra);
+    if (useWinStatus) setWinStatus(wordOrMsg, nick, extra, platform);
     else setStatus(`${wordOrMsg} · ${extra}`, "win");
   };
   tick();
@@ -471,7 +508,7 @@ function scheduleRetry() {
   }, 1000);
 }
 
-async function sendGuess(word, nick = null) {
+async function sendGuess(word, nick = null, platform = null) {
   if (!state.game || state.won) return;
   word = (word || "").trim().toLowerCase();
   if (!word) return;
@@ -488,16 +525,16 @@ async function sendGuess(word, nick = null) {
       return;
     }
 
-    upsertGuess({ ...r, nick });
+    upsertGuess({ ...r, nick, platform });
     markWordEntered();
 
     if (r.won) {
       state.won = true;
-      if (nick) recordWinner(nick);
+      if (nick) recordWinner(nick, platform);
       playWinSound();
       render({ freshWord: r.word });
       renderWinnersLeaderboards();
-      scheduleAutoRestart(r.word, nick);
+      scheduleAutoRestart(r.word, nick, platform);
     } else {
       render({ freshWord: r.word });
     }
@@ -528,142 +565,76 @@ async function giveUp() {
   } catch (_) {}
 }
 
-/* ---------- twitch chat ---------- */
+/* ---------- chat ---------- */
 
-function setTwitchStatus(status, channel = state.twitch.channel) {
-  state.twitch.status = status;
-  const led = $("#twitch-led");
+function renderChatLeds() {
+  const el = $("#chat-leds");
+  if (!el) return;
+  el.innerHTML = config.chats
+    .map(
+      (c) =>
+        `<span class="widget-chat-icon" id="chat-led-${c.server}" title="${ChatClient.formatChatTarget(
+          c.server,
+          c.channel
+        )}">${ChatClient.platformIconHtml(c.server)}</span>`
+    )
+    .join("");
+}
+
+function setChatStatus(status, server, channel) {
+  const led = document.getElementById(`chat-led-${server}`);
   if (!led) return;
   led.classList.remove("connecting", "connected");
   if (status === "connecting") led.classList.add("connecting");
-  if (status === "connected") led.classList.add("connected");
+  else if (status === "connected") led.classList.add("connected");
+  const target = ChatClient.formatChatTarget(server, channel);
   const titles = {
-    disconnected: "не подключено",
-    connecting: `подключение к #${channel}...`,
-    connected: `подключено к #${channel}`,
+    disconnected: `${ChatClient.serverMeta(server).label}: не подключено`,
+    connecting: `подключение к ${target}...`,
+    connected: `подключено к ${target}`,
   };
   led.title = titles[status] || "";
 }
 
-function parseIrcLine(line) {
-  let tags = {};
-  if (line.startsWith("@")) {
-    const sp = line.indexOf(" ");
-    line.slice(1, sp).split(";").forEach((p) => {
-      const i = p.indexOf("=");
-      if (i < 0) tags[p] = "";
-      else tags[p.slice(0, i)] = p.slice(i + 1);
-    });
-    line = line.slice(sp + 1);
+function handleIncomingChat(msg) {
+  const text = (msg && msg.text) || "";
+  const user = (msg && msg.user) || {};
+  const display = user.displayName || user.id || "chat";
+  const chatCmd = ChatClient.parseChatCommand(text);
+  if (
+    chatCmd &&
+    ChatClient.isPrivilegedChatMessage(
+      msg,
+      PRIVILEGED_CHAT_LOGINS,
+      msg && msg.channel
+    )
+  ) {
+    if (chatCmd === "hint") getTip();
+    else if (chatCmd === "restart") giveUp();
+    else if (chatCmd === "reload") location.reload();
+    else if (chatCmd === "reset_stats") resetWinnersStats();
+    return;
   }
-  let prefix = "";
-  if (line.startsWith(":")) {
-    const sp = line.indexOf(" ");
-    prefix = line.slice(1, sp);
-    line = line.slice(sp + 1);
-  }
-  let trailing = "";
-  const ti = line.indexOf(" :");
-  let mid = line;
-  if (ti >= 0) {
-    mid = line.slice(0, ti);
-    trailing = line.slice(ti + 2);
-  }
-  const parts = mid.split(" ");
-  return { tags, prefix, command: parts[0], params: parts.slice(1), trailing };
+  const word = ChatClient.extractWord(text);
+  if (!word) return;
+  if (!state.game || state.won) return;
+  sendGuess(word, display, msg.server);
 }
 
-function extractWord(text) {
-  const t = (text || "").trim().toLowerCase();
-  if (!/^[а-яё]+$/.test(t)) return null;
-  if (t.length < 2 || t.length > 30) return null;
-  return t;
-}
-
-function isPrivilegedChatter(tags, login, display) {
-  const badges = tags.badges || "";
-  if (badges.includes("broadcaster/") || badges.includes("moderator/")) return true;
-  if (tags.mod === "1") return true;
-  const l = (login || "").toLowerCase();
-  const d = (display || "").toLowerCase();
-  return PRIVILEGED_CHAT_LOGINS.has(l) || PRIVILEGED_CHAT_LOGINS.has(d);
-}
-
-function parseChatCommand(text) {
-  const cmd = (text || "").trim().toLowerCase();
-  if (cmd === "!context_hint") return "hint";
-  if (cmd === "!context_restart") return "restart";
-  if (cmd === "!context_reload") return "reload";
-  if (cmd === "!context_reset_stats") return "reset_stats";
-  return null;
-}
-
-function connectTwitch(channel) {
-  channel = (channel || "").trim().toLowerCase().replace(/^#/, "");
-  if (!channel) return;
-  state.twitch.channel = channel;
-  setTwitchStatus("connecting", channel);
-
-  const ws = new WebSocket("wss://irc-ws.chat.twitch.tv:443");
-  state.twitch.ws = ws;
-
-  const markConnected = () => {
-    if (state.twitch.status !== "connected") {
-      setTwitchStatus("connected", channel);
+const chatHub = ChatClient.createChatHub({
+  onStatus: setChatStatus,
+  onError: (text, server) => {
+    const label = server ? `${ChatClient.serverMeta(server).label}: ` : "";
+    setStatus(label + text, "error");
+  },
+  onClearError: () => {
+    if ($("#status")?.classList.contains("error")) {
+      setStatus("угадайте слово в чате");
     }
-  };
-
-  ws.onopen = () => {
-    const nick = `justinfan${Math.floor(Math.random() * 90000 + 10000)}`;
-    ws.send("CAP REQ :twitch.tv/tags");
-    ws.send("PASS SCHMOOPIIE");
-    ws.send(`NICK ${nick}`);
-    ws.send(`JOIN #${channel}`);
-  };
-
-  ws.onmessage = (ev) => {
-    const lines = ev.data.split("\r\n").filter(Boolean);
-    for (const raw of lines) {
-      if (raw.startsWith("PING")) {
-        ws.send(raw.replace("PING", "PONG"));
-        continue;
-      }
-      const m = parseIrcLine(raw);
-      if (m.command === "366" || m.command === "JOIN" || m.command === "PRIVMSG") {
-        markConnected();
-      }
-      if (m.command === "PRIVMSG") {
-        const nickFromPrefix = m.prefix.split("!")[0];
-        const display = m.tags["display-name"] || nickFromPrefix;
-        const chatCmd = parseChatCommand(m.trailing);
-        if (chatCmd && isPrivilegedChatter(m.tags, nickFromPrefix, display)) {
-          if (chatCmd === "hint") getTip();
-          else if (chatCmd === "restart") giveUp();
-          else if (chatCmd === "reload") location.reload();
-          else if (chatCmd === "reset_stats") resetWinnersStats();
-          continue;
-        }
-        const word = extractWord(m.trailing);
-        if (!word) continue;
-        if (!state.game || state.won) continue;
-        sendGuess(word, display);
-      }
-    }
-  };
-
-  ws.onclose = () => {
-    if (state.twitch.ws === ws) {
-      state.twitch.ws = null;
-      setTwitchStatus("disconnected", null);
-      // Auto-reconnect: the widget should stay live unattended.
-      setTimeout(() => {
-        if (!state.twitch.ws) connectTwitch(channel);
-      }, 3000);
-    }
-  };
-
-  ws.onerror = () => {};
-}
+  },
+  onMessage: handleIncomingChat,
+  autoReconnect: true,
+});
 
 /* ---------- setup / boot ---------- */
 
@@ -673,16 +644,18 @@ function showSetupHelp() {
   el.hidden = false;
   el.innerHTML = `
     <b>Не указан канал.</b><br />
-    Добавьте название twitch-канала в адрес источника OBS:<br />
-    <code>?channel=имя_канала</code><br /><br />
+    Добавьте каналы в адрес источника OBS — можно несколько сразу:<br />
+    <code>?twitch=имя&amp;vkvideo=имя&amp;kick=имя&amp;wtv=имя</code><br /><br />
     <b>Параметры:</b><br />
-    <code>channel</code> — канал twitch (обязательно)<br />
+    <code>twitch</code>, <code>vkvideo</code>, <code>kick</code>, <code>wtv</code> — каналы платформ<br />
+    <code>channel</code> + <code>server</code> — старый формат одного чата<br />
     <code>sound</code> — звук победы, <code>1</code>/<code>0</code> (по умолчанию выкл)<br />
     <code>volume</code> — громкость в процентах (по умолчанию 25)<br />
     <code>delay</code> — сколько секунд показывать победителей (по умолчанию 8)<br />
     <code>rows</code> — сколько вариантов показывать (по умолчанию 12)<br /><br />
-    Пример:<br />
-    <code>?channel=olegsvs&sound=1&volume=25&delay=8</code><br /><br />
+    Примеры:<br />
+    <code>?twitch=olegsvs&amp;vkvideo=канал&amp;sound=1</code><br />
+    <code>?channel=olegsvs</code> (только Twitch, как раньше)<br /><br />
     <b>Команды в чате (модераторы, владелец):</b><br />
     <code>!context_hint</code> — подсказка<br />
     <code>!context_restart</code> — сдаться и показать слово<br />
@@ -696,14 +669,16 @@ function showSetupHelp() {
   const today = loadWinnersToday();
   state.winnerWinsTodayDate = today.date;
   state.winnerWinsToday = today.map;
+  state.winnerPlatforms = loadWinnerPlatforms();
 
-  if (!config.channel) {
-    setStatus("укажите канал в query-параметрах", "error");
-    $("#twitch-led")?.remove();
+  if (!config.chats.length) {
+    setStatus("укажите каналы в query-параметрах", "error");
+    $("#chat-leds")?.remove();
     showSetupHelp();
     return;
   }
 
-  connectTwitch(config.channel);
+  renderChatLeds();
+  chatHub.connectMany(config.chats);
   startRound();
 })();

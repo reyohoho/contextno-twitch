@@ -4,6 +4,8 @@ services:
   backend:
     build: ./backend
     container_name: contextnorf-backend
+    environment:
+      CHAT_SERVER_URL: ${CHAT_SERVER_URL:-https://chats.eventlab.dev}
     expose:
       - "8000"
     healthcheck:

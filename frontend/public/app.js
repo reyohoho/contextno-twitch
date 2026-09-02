@@ -3,6 +3,9 @@
 const API = "/api";
 const AUTHOR_ID_KEY = "contextnorf:author_id";
 const TWITCH_CHANNEL_KEY = "contextnorf:twitch_channel";
+const CHAT_SERVER_KEY = "contextnorf:chat_server";
+const CHAT_CHANNEL_KEY = "contextnorf:chat_channel";
+const CHAT_TARGETS_KEY = "contextnorf:chats";
 const HANDS_OFF_KEY = "contextnorf:hands_off";
 const WINNERS_ALLTIME_KEY = "contextnorf:winners";
 const WINNERS_TODAY_KEY = "contextnorf:winners_today";
@@ -10,6 +13,7 @@ const LEGACY_WINNERS_KEY = "contextnorf:session_wins";
 const SECRET_HISTORY_KEY = "contextnorf:secret_history";
 const WIN_SOUND_KEY = "contextnorf:win_sound";
 const SOUND_VOLUME_KEY = "contextnorf:sound_volume";
+const WINNERS_PLATFORMS_KEY = "contextnorf:winner_platforms";
 
 const PRIVILEGED_CHAT_LOGINS = new Set(["olegsvs"]);
 
@@ -24,12 +28,15 @@ const state = {
   guesses: [],
   won: false,
   tipsUsed: 0,
-  twitch: { ws: null, channel: null, status: "disconnected" },
+  chat: { savedStatus: null, errors: {} },
+  paused: false,
+  gameEpoch: 0,
   handsOff: false,
   autoRestartTimer: null,
   winnerWinsAlltime: new Map(),
   winnerWinsToday: new Map(),
   winnerWinsTodayDate: "",
+  winnerPlatforms: new Map(),
   roundHasWord: false,
   gameKind: "random", // random | custom
   secretRevealed: false,
@@ -292,9 +299,9 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
-function setWinStatus(word, nick = null, extra = "") {
+function setWinStatus(word, nick = null, extra = "", platform = null) {
   const nickHtml = nick
-    ? ` · <span class="win-nick">@${escapeHtml(nick)}</span>`
+    ? ` · <span class="win-nick">${ChatClient.nickHtml(nick, platform)}</span>`
     : "";
   const extraHtml = extra ? ` · ${escapeHtml(extra)}` : "";
   setStatus(
@@ -326,11 +333,13 @@ function updateCounters() {
 }
 
 function currentModeLabel() {
-  if (state.gameKind === "custom") {
-    return state.handsOff ? "своё слово · автоигра" : "своё слово";
-  }
-  if (state.handsOff) return "автоигра";
+  if (state.gameKind === "custom") return "своё слово";
+  if (isAutoPlay()) return "автоигра";
   return "случайное слово";
+}
+
+function isAutoPlay() {
+  return state.handsOff && state.gameKind === "random";
 }
 
 function rankTier(rank) {
@@ -363,12 +372,7 @@ function rowEl(g, num, opts = {}) {
     <span class="bar" style="width:${(closeness * 100).toFixed(1)}%"></span>
   `;
   el.querySelector(".word").textContent = g.word;
-  const nickEl = el.querySelector(".nick");
-  if (g.nick) {
-    nickEl.textContent = "@" + g.nick;
-  } else {
-    nickEl.hidden = true;
-  }
+  ChatClient.fillNickEl(el.querySelector(".nick"), g.nick, g.platform);
   return el;
 }
 
@@ -400,17 +404,20 @@ function render({ freshWord } = {}) {
 function upsertGuess(g) {
   const i = state.guesses.findIndex((x) => x.word === g.word);
   const rec = { word: g.word, rank: g.rank, tip: !!g.tip };
+  if (g.nick) rec.nick = g.nick;
+  if (g.platform) rec.platform = g.platform;
   if (i >= 0) {
     state.guesses[i] = { ...state.guesses[i], ...rec };
   } else {
-    if (g.nick) rec.nick = g.nick;
     state.guesses.push(rec);
   }
 }
 
 async function startGame({ secret = null } = {}) {
+  const epoch = ++state.gameEpoch;
   cancelAutoRestart();
   resetBoard();
+  state.paused = false;
   state.gameKind = secret ? "custom" : "random";
   setStatus(secret ? "публикация..." : "новая случайная игра...");
   try {
@@ -420,9 +427,11 @@ async function startGame({ secret = null } = {}) {
       method: "POST",
       body: JSON.stringify(body),
     });
+    if (epoch !== state.gameEpoch) return;
     state.game = { game_id: data.game_id };
 
     setMode("playing");
+    renderHandsOff();
 
     if (secret) {
       rememberSecretWord(secret);
@@ -435,9 +444,23 @@ async function startGame({ secret = null } = {}) {
     render();
     renderWinnersLeaderboards();
   } catch (e) {
+    if (epoch !== state.gameEpoch) return;
     setMode(secret ? "secret" : "over");
+    renderHandsOff();
     setStatus(e.message, "error");
   }
+}
+
+function enterSecretMode() {
+  state.gameEpoch += 1;
+  cancelAutoRestart();
+  state.game = null;
+  state.won = true;
+  state.paused = true;
+  resetBoard();
+  setMode("secret");
+  renderHandsOff();
+  setStatus("игра остановлена · введите своё слово (на экране одна ● — длина не видна)");
 }
 
 function markWordEntered() {
@@ -446,8 +469,8 @@ function markWordEntered() {
   renderWinnersLeaderboards();
 }
 
-async function sendGuess(word, nick = null) {
-  if (!state.game || state.won) return;
+async function sendGuess(word, nick = null, platform = null) {
+  if (state.paused || !state.game || state.won) return;
   word = (word || "").trim().toLowerCase();
   if (!word) return;
 
@@ -469,17 +492,17 @@ async function sendGuess(word, nick = null) {
       return;
     }
 
-    upsertGuess({ ...r, nick });
+    upsertGuess({ ...r, nick, platform });
     markWordEntered();
 
     if (r.won) {
       state.won = true;
-      if (nick) recordWinner(nick);
-      setWinStatus(r.word, nick);
+      if (nick) recordWinner(nick, platform);
+      setWinStatus(r.word, nick, "", platform);
       setMode("over");
       playWinSound();
       renderWinnersLeaderboards();
-      if (state.handsOff) scheduleAutoRestart(r.word, nick);
+      if (isAutoPlay()) scheduleAutoRestart(r.word, nick, platform);
     } else {
       const author = nick ? ` (${nick})` : "";
       setStatus(
@@ -501,7 +524,7 @@ function submitGuess(ev) {
 }
 
 async function getTip() {
-  if (!state.game || state.won) return;
+  if (state.paused || !state.game || state.won) return;
   try {
     const r = await api(`/games/${state.game.game_id}/tip`, { method: "POST" });
     if (r.error) {
@@ -518,7 +541,7 @@ async function getTip() {
 }
 
 async function giveUp({ skipConfirm = false } = {}) {
-  if (!state.game || state.won) return;
+  if (state.paused || !state.game || state.won) return;
   if (!skipConfirm && !confirm("сдаёмся?")) return;
   try {
     const r = await api(`/games/${state.game.game_id}/give-up`, {
@@ -529,16 +552,17 @@ async function giveUp({ skipConfirm = false } = {}) {
     const overMsg = r.secret ? `загаданное слово: ${r.secret}` : "игра завершена";
     setStatus(overMsg, "win");
     renderWinnersLeaderboards();
-    if (state.handsOff) scheduleAutoRestart(overMsg);
+    if (isAutoPlay()) scheduleAutoRestart(overMsg);
   } catch (e) {
     setStatus(e.message, "error");
   }
 }
 
-function showTwitchError(text) {
+function showChatError(text, server) {
+  if (server) state.chat.errors[server] = text;
   const el = $("#status");
-  if (!el.classList.contains("error") || !state.twitch.savedStatus) {
-    state.twitch.savedStatus = {
+  if (!el.classList.contains("error") || !state.chat.savedStatus) {
+    state.chat.savedStatus = {
       text: el.textContent,
       kind: el.classList.contains("win")
         ? "win"
@@ -547,96 +571,180 @@ function showTwitchError(text) {
         : "",
     };
   }
-  setStatus(text, "error");
+  const label = server ? `${ChatClient.serverMeta(server).label}: ` : "";
+  setStatus(label + text, "error");
 }
 
-function clearTwitchError() {
-  const saved = state.twitch.savedStatus;
-  state.twitch.savedStatus = null;
+function clearChatError(server) {
+  if (server) delete state.chat.errors[server];
+  const leftover = Object.entries(state.chat.errors);
+  if (leftover.length) {
+    const [srv, text] = leftover[0];
+    setStatus(`${ChatClient.serverMeta(srv).label}: ${text}`, "error");
+    return;
+  }
+  const saved = state.chat.savedStatus;
+  state.chat.savedStatus = null;
   if (!saved) return;
   const el = $("#status");
   if (!el.classList.contains("error")) return;
   setStatus(saved.text, saved.kind);
 }
 
-function setTwitchStatus(status, channel = state.twitch.channel) {
-  state.twitch.status = status;
-  const led = $("#twitch-led");
-  led.classList.remove("connecting", "connected");
-  if (status === "connecting") led.classList.add("connecting");
-  if (status === "connected") led.classList.add("connected");
-
+function setChatStatus(status, server, channel) {
+  const target = ChatClient.formatChatTarget(server, channel);
   const titles = {
-    disconnected: "не подключено",
-    connecting: `подключение к #${channel}...`,
-    connected: `подключено к #${channel}`,
+    disconnected: `${ChatClient.serverMeta(server).label}: не подключено`,
+    connecting: `подключение к ${target}...`,
+    connected: `подключено к ${target}`,
   };
-  led.title = titles[status] || "";
+  const title = titles[status] || "";
 
-  const btn = $("#twitch-btn");
-  btn.textContent = status === "disconnected" ? "подключить" : "отключить";
-}
+  document.querySelectorAll(`[data-chat-led="${server}"]`).forEach((led) => {
+    led.classList.remove("connecting", "connected");
+    if (status === "connecting") led.classList.add("connecting");
+    if (status === "connected") led.classList.add("connected");
+    led.title = title;
+  });
 
-function parseIrcLine(line) {
-  let tags = {};
-  if (line.startsWith("@")) {
-    const sp = line.indexOf(" ");
-    line.slice(1, sp).split(";").forEach((p) => {
-      const i = p.indexOf("=");
-      if (i < 0) tags[p] = "";
-      else tags[p.slice(0, i)] = p.slice(i + 1);
-    });
-    line = line.slice(sp + 1);
+  const dock = document.querySelector(`[data-chat-dock="${server}"]`);
+  if (dock) {
+    dock.classList.toggle("connecting", status === "connecting");
+    dock.classList.toggle("connected", status === "connected");
+    dock.title = title || ChatClient.serverMeta(server).label;
   }
-  let prefix = "";
-  if (line.startsWith(":")) {
-    const sp = line.indexOf(" ");
-    prefix = line.slice(1, sp);
-    line = line.slice(sp + 1);
+
+  const btn = document.getElementById(`chat-btn-${server}`);
+  if (btn) {
+    btn.textContent =
+      status === "disconnected"
+        ? "подключить"
+        : status === "connecting"
+        ? "подключение..."
+        : "отключить";
   }
-  let trailing = "";
-  const ti = line.indexOf(" :");
-  let mid = line;
-  if (ti >= 0) {
-    mid = line.slice(0, ti);
-    trailing = line.slice(ti + 2);
+}
+
+function handleIncomingChat(msg) {
+  const text = (msg && msg.text) || "";
+  const user = (msg && msg.user) || {};
+  const display = user.displayName || user.id || "chat";
+  const chatCmd = ChatClient.parseChatCommand(text);
+  if (
+    chatCmd &&
+    ChatClient.isPrivilegedChatMessage(
+      msg,
+      PRIVILEGED_CHAT_LOGINS,
+      msg && msg.channel
+    )
+  ) {
+    if (chatCmd === "hint") getTip();
+    else if (chatCmd === "restart") giveUp({ skipConfirm: true });
+    else if (chatCmd === "reload") reloadPagePreservingSettings();
+    else if (chatCmd === "reset_stats") resetWinnersStats();
+    return;
   }
-  const parts = mid.split(" ");
-  return { tags, prefix, command: parts[0], params: parts.slice(1), trailing };
+  const word = ChatClient.extractWord(text);
+  if (!word) return;
+  sendGuess(word, display, msg.server);
 }
 
-function extractWord(text) {
-  const t = (text || "").trim().toLowerCase();
-  if (!/^[а-яё]+$/.test(t)) return null;
-  if (t.length < 2 || t.length > 30) return null;
-  return t;
+const chatHub = ChatClient.createChatHub({
+  onStatus: setChatStatus,
+  onError: showChatError,
+  onClearError: clearChatError,
+  onMessage: handleIncomingChat,
+  autoReconnect: true,
+});
+
+function emptyChatMap() {
+  const out = {};
+  for (const s of ChatClient.CHAT_SERVERS) out[s.id] = "";
+  return out;
 }
 
-function isPrivilegedChatter(tags, login, display) {
-  const badges = tags.badges || "";
-  if (badges.includes("broadcaster/") || badges.includes("moderator/")) return true;
-  if (tags.mod === "1") return true;
-  const l = (login || "").toLowerCase();
-  const d = (display || "").toLowerCase();
-  return PRIVILEGED_CHAT_LOGINS.has(l) || PRIVILEGED_CHAT_LOGINS.has(d);
+function chatInputEl(server, prefix = "chat") {
+  return document.getElementById(`${prefix}-channel-${server}`);
 }
 
-function parseChatCommand(text) {
-  const cmd = (text || "").trim().toLowerCase();
-  if (cmd === "!context_hint") return "hint";
-  if (cmd === "!context_restart") return "restart";
-  if (cmd === "!context_reload") return "reload";
-  if (cmd === "!context_reset_stats") return "reset_stats";
-  return null;
+function chatInputValue(server, prefix = "chat") {
+  return (chatInputEl(server, prefix)?.value || "").trim();
+}
+
+function setChatInputValue(server, value, prefix = "chat") {
+  const el = chatInputEl(server, prefix);
+  if (el) el.value = value || "";
+}
+
+function normalizeChatRow(server, prefix = "chat") {
+  const raw = chatInputValue(server, prefix);
+  if (!raw) return { server, channel: "" };
+  const parsed = ChatClient.parseChatTarget(raw, server);
+  if (!parsed.channel) return parsed;
+  if (parsed.server !== server) {
+    setChatInputValue(server, "", prefix);
+    setChatInputValue(parsed.server, parsed.channel, prefix);
+  } else if (parsed.channel !== raw) {
+    setChatInputValue(server, parsed.channel, prefix);
+  }
+  return parsed;
+}
+
+function readChatFormTargets(prefix = "chat") {
+  const map = emptyChatMap();
+  for (const s of ChatClient.CHAT_SERVERS) {
+    const parsed = ChatClient.parseChatTarget(chatInputValue(s.id, prefix), s.id);
+    if (parsed.channel) map[parsed.server] = parsed.channel;
+  }
+  return map;
+}
+
+function filledChatTargets(prefix = "chat") {
+  const map = readChatFormTargets(prefix);
+  return ChatClient.CHAT_SERVERS.map((s) =>
+    map[s.id] ? { server: s.id, channel: map[s.id] } : null
+  ).filter(Boolean);
+}
+
+function renderChatRows(containerId, { prefix, withButtons }) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = ChatClient.CHAT_SERVERS.map((s) => {
+    const led = withButtons
+      ? `<span class="chat-led" data-chat-led="${s.id}" title="${s.label}: не подключено"></span>`
+      : "";
+    const btn = withButtons
+      ? `<button type="button" class="btn btn-outline chat-row-btn" id="chat-btn-${s.id}" data-server="${s.id}">подключить</button>`
+      : "";
+    return `<div class="chat-row" data-server="${s.id}">
+      ${led}
+      <span class="chat-platform-badge">${ChatClient.platformIconHtml(s.id)}</span>
+      <span class="chat-row-label">${s.label}</span>
+      <input
+        id="${prefix}-channel-${s.id}"
+        class="input chat-input"
+        type="text"
+        placeholder="${s.placeholder}"
+        autocomplete="off"
+        autocapitalize="off"
+        spellcheck="false"
+        aria-label="${s.label}"
+      />
+      ${btn}
+    </div>`;
+  }).join("");
+}
+
+function applySavedChatsToForm(saved, prefix = "chat") {
+  for (const s of ChatClient.CHAT_SERVERS) {
+    const item = saved[s.id];
+    setChatInputValue(s.id, item && item.channel ? item.channel : "", prefix);
+  }
 }
 
 function reloadPagePreservingSettings() {
   saveHandsOff(state.handsOff);
-  const channel =
-    state.twitch.channel ||
-    ($("#twitch-channel")?.value || "").trim().toLowerCase().replace(/^#/, "") ||
-    getSavedChannel();
-  if (channel) saveChannel(channel);
+  persistChats();
   location.reload();
 }
 
@@ -718,11 +826,40 @@ function saveWinnersToday() {
   } catch (_) {}
 }
 
-function recordWinner(nick) {
+function loadWinnerPlatforms() {
+  try {
+    const raw = localStorage.getItem(WINNERS_PLATFORMS_KEY);
+    if (!raw) return new Map();
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== "object") return new Map();
+    return new Map(
+      Object.entries(obj).filter(([_, server]) =>
+        ChatClient.CHAT_SERVERS.some((s) => s.id === server)
+      )
+    );
+  } catch (_) {
+    return new Map();
+  }
+}
+
+function saveWinnerPlatforms(map = state.winnerPlatforms) {
+  try {
+    localStorage.setItem(
+      WINNERS_PLATFORMS_KEY,
+      JSON.stringify(Object.fromEntries(map))
+    );
+  } catch (_) {}
+}
+
+function recordWinner(nick, platform) {
   if (!nick) return;
   state.winnerWinsAlltime.set(nick, (state.winnerWinsAlltime.get(nick) || 0) + 1);
   syncTodayWinnersDate();
   state.winnerWinsToday.set(nick, (state.winnerWinsToday.get(nick) || 0) + 1);
+  if (platform && ChatClient.CHAT_SERVERS.some((s) => s.id === platform)) {
+    state.winnerPlatforms.set(nick, platform);
+    saveWinnerPlatforms();
+  }
   saveWinnersAlltime();
   saveWinnersToday();
   renderWinnersLeaderboards();
@@ -749,8 +886,10 @@ function resetWinnersStats() {
   state.winnerWinsAlltime = new Map();
   syncTodayWinnersDate();
   state.winnerWinsToday = new Map();
+  state.winnerPlatforms = new Map();
   saveWinnersAlltime();
   saveWinnersToday();
+  saveWinnerPlatforms();
   renderWinnersLeaderboards();
   setStatus("статистика победителей сброшена");
 }
@@ -785,9 +924,14 @@ function renderOneWinnersBoard(section, list, resetBtn, map) {
     li.className = "session-leaderboard-row";
     li.innerHTML = `
       <span class="session-rank">${i + 1}</span>
-      <span class="session-nick">@${nick}</span>
+      <span class="session-nick"></span>
       <span class="session-wins" title="${fmtInt(wins)} ${pluralWinsRu(wins)}">${fmtInt(wins)}</span>
     `;
+    ChatClient.fillNickEl(
+      li.querySelector(".session-nick"),
+      nick,
+      state.winnerPlatforms.get(nick)
+    );
     list.appendChild(li);
   }
   section.hidden = false;
@@ -800,7 +944,7 @@ function winnersHasData() {
 
 function shouldShowWinnersBoards() {
   if (!winnersHasData()) return false;
-  if (state.handsOff) {
+  if (isAutoPlay()) {
     if (state.won) return true;
     return !!state.game && !state.roundHasWord;
   }
@@ -825,133 +969,198 @@ function renderWinnersLeaderboards() {
   if (wrap) wrap.hidden = !shouldShowWinnersBoards();
 }
 
-function safeClose(ws) {
-  if (!ws) return;
+function getSavedChats() {
+  const out = {};
+  for (const s of ChatClient.CHAT_SERVERS) {
+    out[s.id] = { channel: "", connected: false };
+  }
   try {
-    ws.onmessage = null;
-    ws.onerror = null;
-    ws.onclose = null;
-    if (ws.readyState === WebSocket.CONNECTING) {
-      ws.onopen = () => {
-        try {
-          ws.close();
-        } catch (_) {}
-      };
+    const raw = localStorage.getItem(CHAT_TARGETS_KEY);
+    if (raw) {
+      const obj = JSON.parse(raw);
+      if (obj && typeof obj === "object") {
+        for (const s of ChatClient.CHAT_SERVERS) {
+          const item = obj[s.id];
+          if (typeof item === "string" && item) {
+            out[s.id] = { channel: item.toLowerCase(), connected: true };
+          } else if (item && typeof item === "object" && item.channel) {
+            out[s.id] = {
+              channel: String(item.channel).toLowerCase(),
+              connected: !!item.connected,
+            };
+          }
+        }
+        return out;
+      }
+    }
+  } catch (_) {}
+
+  let server = "twitch";
+  let channel = "";
+  try {
+    server = localStorage.getItem(CHAT_SERVER_KEY) || "twitch";
+    channel =
+      localStorage.getItem(CHAT_CHANNEL_KEY) ||
+      localStorage.getItem(TWITCH_CHANNEL_KEY) ||
+      "";
+  } catch (_) {}
+  if (!ChatClient.CHAT_SERVERS.some((s) => s.id === server)) server = "twitch";
+  if (channel) {
+    out[server] = { channel: channel.toLowerCase(), connected: true };
+  }
+  return out;
+}
+
+function persistChats() {
+  const form = readChatFormTargets("chat");
+  const obj = {};
+  for (const s of ChatClient.CHAT_SERVERS) {
+    const live = chatHub.getState(s.id);
+    const channel = (live.channel || form[s.id] || "").toLowerCase();
+    if (!channel) continue;
+    obj[s.id] = {
+      channel,
+      connected: live.status !== "disconnected",
+    };
+  }
+  try {
+    if (Object.keys(obj).length) {
+      localStorage.setItem(CHAT_TARGETS_KEY, JSON.stringify(obj));
+      const first = ChatClient.CHAT_SERVERS.find((s) => obj[s.id]);
+      if (first) {
+        localStorage.setItem(CHAT_SERVER_KEY, first.id);
+        localStorage.setItem(CHAT_CHANNEL_KEY, obj[first.id].channel);
+        localStorage.setItem(
+          TWITCH_CHANNEL_KEY,
+          (obj.twitch && obj.twitch.channel) || obj[first.id].channel
+        );
+      }
     } else {
-      ws.close();
+      localStorage.removeItem(CHAT_TARGETS_KEY);
+      localStorage.removeItem(CHAT_SERVER_KEY);
+      localStorage.removeItem(CHAT_CHANNEL_KEY);
+      localStorage.removeItem(TWITCH_CHANNEL_KEY);
     }
   } catch (_) {}
 }
 
-function disconnectTwitch() {
-  const ws = state.twitch.ws;
-  state.twitch.ws = null;
-  state.twitch.channel = null;
-  safeClose(ws);
-  setTwitchStatus("disconnected", null);
-}
-
-function connectTwitch(channel) {
-  channel = (channel || "").trim().toLowerCase().replace(/^#/, "");
+function connectChatRow(server) {
+  const parsed = normalizeChatRow(server, "chat");
+  const dest = parsed.channel ? parsed.server : server;
+  const channel = parsed.channel || chatInputValue(dest);
   if (!channel) return;
-  disconnectTwitch();
-  state.twitch.channel = channel;
-  setTwitchStatus("connecting", channel);
-
-  const ws = new WebSocket("wss://irc-ws.chat.twitch.tv:443");
-  state.twitch.ws = ws;
-
-  const failTimer = setTimeout(() => {
-    if (state.twitch.ws === ws && state.twitch.status !== "connected") {
-      showTwitchError(`не удалось подключиться к каналу #${channel}`);
-      disconnectTwitch();
-    }
-  }, 15000);
-
-  const markConnected = () => {
-    clearTimeout(failTimer);
-    if (state.twitch.status !== "connected") {
-      setTwitchStatus("connected", channel);
-      clearTwitchError();
-    }
-  };
-
-  ws.onopen = () => {
-    const nick = `justinfan${Math.floor(Math.random() * 90000 + 10000)}`;
-    ws.send("CAP REQ :twitch.tv/tags");
-    ws.send("PASS SCHMOOPIIE");
-    ws.send(`NICK ${nick}`);
-    ws.send(`JOIN #${channel}`);
-  };
-
-  ws.onmessage = (ev) => {
-    const lines = ev.data.split("\r\n").filter(Boolean);
-    for (const raw of lines) {
-      if (raw.startsWith("PING")) {
-        ws.send(raw.replace("PING", "PONG"));
-        continue;
-      }
-      const m = parseIrcLine(raw);
-
-      if (m.command === "366" || m.command === "JOIN" || m.command === "PRIVMSG") {
-        markConnected();
-      }
-
-      if (m.command === "NOTICE") {
-        const id = m.tags["msg-id"] || "";
-        const okIds = new Set(["msg_room_state", "host_target_went_offline"]);
-        if (!okIds.has(id)) {
-          showTwitchError(`twitch: ${m.trailing || "ошибка подключения"}`);
-          disconnectTwitch();
-          return;
-        }
-      }
-
-      if (m.command === "PRIVMSG") {
-        const nickFromPrefix = m.prefix.split("!")[0];
-        const display = m.tags["display-name"] || nickFromPrefix;
-        const chatCmd = parseChatCommand(m.trailing);
-        if (chatCmd && isPrivilegedChatter(m.tags, nickFromPrefix, display)) {
-          if (chatCmd === "hint") getTip();
-          else if (chatCmd === "restart") giveUp({ skipConfirm: true });
-          else if (chatCmd === "reload") reloadPagePreservingSettings();
-          else if (chatCmd === "reset_stats") resetWinnersStats();
-          continue;
-        }
-        const word = extractWord(m.trailing);
-        if (!word) continue;
-        if (!state.game || state.won) continue;
-        sendGuess(word, display);
-      }
-    }
-  };
-
-  ws.onerror = () => {
-    clearTimeout(failTimer);
-  };
-
-  ws.onclose = () => {
-    clearTimeout(failTimer);
-    if (state.twitch.ws === ws) {
-      state.twitch.ws = null;
-      setTwitchStatus("disconnected", null);
-    }
-  };
+  setChatInputValue(dest, channel);
+  chatHub.connect(dest, channel);
+  persistChats();
 }
 
-function getSavedChannel() {
-  try {
-    return localStorage.getItem(TWITCH_CHANNEL_KEY) || "";
-  } catch (_) {
-    return "";
+function toggleChatRow(server) {
+  const live = chatHub.getState(server);
+  if (live.status !== "disconnected") {
+    chatHub.disconnect(server);
+    persistChats();
+    return;
+  }
+  connectChatRow(server);
+}
+
+function connectFilledChats() {
+  for (const s of ChatClient.CHAT_SERVERS) normalizeChatRow(s.id, "chat");
+  const targets = filledChatTargets("chat");
+  if (!targets.length) return;
+  chatHub.connectMany(targets);
+  persistChats();
+}
+
+function disconnectAllChats() {
+  chatHub.disconnectAll();
+  persistChats();
+}
+
+function openChatModal(focusServer) {
+  const modal = $("#chat-modal");
+  if (!modal) return;
+  modal.hidden = false;
+  if (focusServer) {
+    const input = chatInputEl(focusServer, "chat");
+    setTimeout(() => input?.focus(), 0);
   }
 }
 
-function saveChannel(channel) {
-  try {
-    if (channel) localStorage.setItem(TWITCH_CHANNEL_KEY, channel);
-    else localStorage.removeItem(TWITCH_CHANNEL_KEY);
-  } catch (_) {}
+function closeChatModal() {
+  const modal = $("#chat-modal");
+  if (!modal) return;
+  persistChats();
+  modal.hidden = true;
+}
+
+function renderChatDock() {
+  const el = $("#chat-dock");
+  if (!el) return;
+  el.innerHTML = ChatClient.CHAT_SERVERS.map(
+    (s) => `<button
+      type="button"
+      class="chat-dock-item"
+      data-chat-dock="${s.id}"
+      aria-label="${s.label}: настроить чаты"
+      title="${s.label}"
+    >
+      <span class="chat-led" data-chat-led="${s.id}"></span>
+      ${ChatClient.platformIconHtml(s.id)}
+    </button>`
+  ).join("");
+}
+
+function setupChatPanel() {
+  renderChatDock();
+  renderChatRows("chat-rows", { prefix: "chat", withButtons: true });
+
+  for (const s of ChatClient.CHAT_SERVERS) {
+    const input = chatInputEl(s.id, "chat");
+    const btn = document.getElementById(`chat-btn-${s.id}`);
+    input?.addEventListener("change", () => {
+      normalizeChatRow(s.id, "chat");
+      persistChats();
+    });
+    input?.addEventListener("paste", () => {
+      setTimeout(() => {
+        normalizeChatRow(s.id, "chat");
+        persistChats();
+      }, 0);
+    });
+    input?.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter") return;
+      ev.preventDefault();
+      connectChatRow(s.id);
+    });
+    btn?.addEventListener("click", () => toggleChatRow(s.id));
+  }
+
+  $("#chat-dock")?.addEventListener("click", (ev) => {
+    const item = ev.target.closest("[data-chat-dock]");
+    if (!item) return;
+    openChatModal(item.getAttribute("data-chat-dock"));
+  });
+  $("#chat-modal-close")?.addEventListener("click", closeChatModal);
+  $("#chat-modal")?.addEventListener("click", (ev) => {
+    if (ev.target === $("#chat-modal")) closeChatModal();
+  });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape" && $("#chat-modal") && !$("#chat-modal").hidden) {
+      closeChatModal();
+    }
+  });
+
+  $("#chat-connect-all")?.addEventListener("click", connectFilledChats);
+  $("#chat-disconnect-all")?.addEventListener("click", disconnectAllChats);
+
+  const saved = getSavedChats();
+  applySavedChatsToForm(saved, "chat");
+  const toConnect = ChatClient.CHAT_SERVERS.filter(
+    (s) => saved[s.id] && saved[s.id].connected && saved[s.id].channel
+  ).map((s) => ({ server: s.id, channel: saved[s.id].channel }));
+  if (toConnect.length) chatHub.connectMany(toConnect);
+  persistChats();
 }
 
 function getSavedHandsOff() {
@@ -969,11 +1178,13 @@ function saveHandsOff(enabled) {
   } catch (_) {}
 }
 
-function renderHandsOffBtn() {
-  const btn = $("#hands-off-btn");
-  if (!btn) return;
-  btn.classList.toggle("active", state.handsOff);
-  btn.setAttribute("aria-pressed", state.handsOff ? "true" : "false");
+function renderHandsOff() {
+  const input = $("#hands-off");
+  const wrap = $("#hands-off-wrap");
+  if (input) input.checked = !!state.handsOff;
+  const secretMode = $("#secret-form") && !$("#secret-form").hidden;
+  const show = state.gameKind !== "custom" && !secretMode;
+  if (wrap) wrap.hidden = !show;
 }
 
 function cancelAutoRestartTimer() {
@@ -988,7 +1199,7 @@ function cancelAutoRestart() {
   renderWinnersLeaderboards();
 }
 
-function scheduleAutoRestart(wordOrMsg, nick) {
+function scheduleAutoRestart(wordOrMsg, nick, platform) {
   cancelAutoRestartTimer();
   renderWinnersLeaderboards();
   let remaining = HANDS_OFF_DELAY;
@@ -996,7 +1207,7 @@ function scheduleAutoRestart(wordOrMsg, nick) {
   const useWinStatus = arguments.length >= 2;
   const tick = () => {
     const extra = `новая игра через ${remaining} сек`;
-    if (useWinStatus) setWinStatus(wordOrMsg, nick, extra);
+    if (useWinStatus) setWinStatus(wordOrMsg, nick, extra, platform);
     else setStatus(`${wordOrMsg} · ${extra}`, "win");
   };
   tick();
@@ -1015,10 +1226,10 @@ function setHandsOff(enabled) {
   const wasOff = !state.handsOff;
   state.handsOff = enabled;
   saveHandsOff(enabled);
-  renderHandsOffBtn();
+  renderHandsOff();
   updateCounters();
   if (enabled) {
-    if (wasOff) startGame();
+    if (wasOff && state.gameKind !== "custom") startGame();
   } else {
     cancelAutoRestart();
   }
@@ -1086,12 +1297,8 @@ function setSoundVolume(volume) {
 const OBS_DEFAULTS = { volume: 25, delay: 8, rows: 12 };
 
 function buildObsUrl() {
-  const channel = ($("#obs-channel").value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/^#/, "");
   const url = new URL("/obs.html", location.origin);
-  if (channel) url.searchParams.set("channel", channel);
+  ChatClient.applyChatsToSearch(url.searchParams, filledChatTargets("obs"));
   if ($("#obs-sound").checked) url.searchParams.set("sound", "1");
 
   const volume = parseInt($("#obs-volume").value, 10);
@@ -1110,17 +1317,23 @@ function buildObsUrl() {
 }
 
 function updateObsUrl() {
+  for (const s of ChatClient.CHAT_SERVERS) {
+    normalizeChatRow(s.id, "obs");
+  }
   const url = buildObsUrl();
   $("#obs-url").value = url;
   $("#obs-open").href = url;
 }
 
 function openObsModal() {
-  const channel =
-    state.twitch.channel ||
-    ($("#twitch-channel")?.value || "").trim().toLowerCase().replace(/^#/, "") ||
-    getSavedChannel();
-  $("#obs-channel").value = channel || "";
+  const saved = getSavedChats();
+  for (const s of ChatClient.CHAT_SERVERS) {
+    const live = chatHub.getState(s.id);
+    const fromForm = chatInputValue(s.id, "chat");
+    const channel =
+      (live.channel || fromForm || (saved[s.id] && saved[s.id].channel) || "").trim();
+    setChatInputValue(s.id, channel, "obs");
+  }
   updateObsUrl();
   $("#obs-modal").hidden = false;
 }
@@ -1133,6 +1346,8 @@ function setupObsModal() {
   const modal = $("#obs-modal");
   if (!modal) return;
 
+  renderChatRows("obs-chat-rows", { prefix: "obs", withButtons: false });
+
   $("#obs-btn")?.addEventListener("click", openObsModal);
   $("#obs-modal-close")?.addEventListener("click", closeObsModal);
   modal.addEventListener("click", (ev) => {
@@ -1142,13 +1357,18 @@ function setupObsModal() {
     if (ev.key === "Escape" && !modal.hidden) closeObsModal();
   });
 
-  ["obs-channel", "obs-sound", "obs-volume", "obs-delay", "obs-rows"].forEach(
-    (id) => {
-      const el = document.getElementById(id);
-      el?.addEventListener("input", updateObsUrl);
-      el?.addEventListener("change", updateObsUrl);
-    }
-  );
+  for (const s of ChatClient.CHAT_SERVERS) {
+    const input = chatInputEl(s.id, "obs");
+    input?.addEventListener("input", updateObsUrl);
+    input?.addEventListener("change", updateObsUrl);
+    input?.addEventListener("paste", () => setTimeout(updateObsUrl, 0));
+  }
+
+  ["obs-sound", "obs-volume", "obs-delay", "obs-rows"].forEach((id) => {
+    const el = document.getElementById(id);
+    el?.addEventListener("input", updateObsUrl);
+    el?.addEventListener("change", updateObsUrl);
+  });
 
   $("#obs-copy")?.addEventListener("click", async () => {
     const btn = $("#obs-copy");
@@ -1175,12 +1395,13 @@ function setupObsModal() {
   const todayWinners = loadWinnersToday();
   state.winnerWinsTodayDate = todayWinners.date;
   state.winnerWinsToday = todayWinners.map;
+  state.winnerPlatforms = loadWinnerPlatforms();
   state.secretHistory = loadSecretHistory();
   state.handsOff = getSavedHandsOff();
   state.winSound = getSavedWinSound();
   state.soundVolume = getSavedSoundVolume();
   renderWinnersLeaderboards();
-  renderHandsOffBtn();
+  renderHandsOff();
   renderSoundSettings();
 
   $("#reset-winners-alltime-btn")?.addEventListener("click", () =>
@@ -1191,7 +1412,9 @@ function setupObsModal() {
   );
   setupSecretHistoryModal();
 
-  $("#hands-off-btn").addEventListener("click", () => setHandsOff(!state.handsOff));
+  $("#hands-off")?.addEventListener("change", (ev) => {
+    setHandsOff(ev.target.checked);
+  });
 
   $("#win-sound-enabled").addEventListener("change", (ev) => {
     setWinSound(ev.target.checked);
@@ -1203,10 +1426,7 @@ function setupObsModal() {
 
   $("#random-btn").addEventListener("click", () => startGame());
 
-  $("#custom-btn").addEventListener("click", () => {
-    setMode("secret");
-    setStatus("введите своё слово (на экране одна ● — длина не видна)");
-  });
+  $("#custom-btn").addEventListener("click", enterSecretMode);
 
   $("#secret-form").addEventListener("submit", (ev) => {
     ev.preventDefault();
@@ -1242,24 +1462,7 @@ function setupObsModal() {
 
   setupObsModal();
 
-  $("#twitch-form").addEventListener("submit", (ev) => {
-    ev.preventDefault();
-    if (state.twitch.status !== "disconnected") {
-      disconnectTwitch();
-      saveChannel("");
-      return;
-    }
-    const ch = $("#twitch-channel").value.trim().toLowerCase().replace(/^#/, "");
-    if (!ch) return;
-    saveChannel(ch);
-    connectTwitch(ch);
-  });
-
-  const saved = getSavedChannel();
-  if (saved) {
-    $("#twitch-channel").value = saved;
-    connectTwitch(saved);
-  }
+  setupChatPanel();
 
   startGame();
 })();

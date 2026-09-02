@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from .chat import connect_chat, get_chat_messages
 from .contextno import (
     ContextnoClient,
     Game,
@@ -36,6 +37,11 @@ class CreateGameBody(BaseModel):
 
 class GuessBody(BaseModel):
     word: str
+
+
+class ChatConnectBody(BaseModel):
+    server: str
+    channel: str
 
 
 def _get(game_id: str) -> Game:
@@ -88,3 +94,17 @@ def post_tip(game_id: str) -> dict:
 @app.post("/api/games/{game_id}/give-up")
 def post_give_up(game_id: str) -> dict:
     return _get(game_id).give_up()
+
+
+@app.post("/api/chat/connect")
+def post_chat_connect(body: ChatConnectBody) -> dict:
+    return connect_chat(body.server, body.channel)
+
+
+@app.get("/api/chat/messages")
+def get_chat_messages_route(
+    server: str,
+    channel: str,
+    tsFrom: int = 0,
+) -> dict:
+    return get_chat_messages(server, channel, tsFrom)

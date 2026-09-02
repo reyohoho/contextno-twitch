@@ -11,12 +11,15 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Roboto:wght@400;500;700;900&display=swap"
     />
-    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/style.css?v=20260902h" />
   </head>
   <body>
     <main class="game">
       <header class="header">
-        <h1 class="title">КОНТЕКСТ</h1>
+        <div class="header-left">
+          <h1 class="title">КОНТЕКСТ</h1>
+          <div class="chat-dock" id="chat-dock" aria-label="чаты платформ"></div>
+        </div>
         <div class="header-actions">
           <button id="random-btn" class="btn btn-outline" type="button">
             случайная
@@ -24,49 +27,13 @@
           <button id="custom-btn" class="btn btn-outline" type="button">
             загадать своё
           </button>
-          <button
-            id="hands-off-btn"
-            class="btn btn-outline"
-            type="button"
-            title="Игра идёт сама: когда чат угадывает слово, через 10 секунд начинается новая случайная игра.
-
-Команды для модераторов, владельца канала:
-!context_hint — подсказка
-!context_restart — сдаться, показать слово
-!context_reload — перезагрузить страницу
-!context_reset_stats — сбросить статистику победителей"
-          >
-            автоигра
-          </button>
           <button id="obs-btn" class="btn btn-outline" type="button">
-            Виджет для OBS
+            виджет для OBS
           </button>
         </div>
       </header>
 
-      <form class="twitch" id="twitch-form" autocomplete="off">
-        <span
-          id="twitch-led"
-          class="twitch-led"
-          aria-hidden="true"
-          title="не подключено"
-        ></span>
-        <input
-          id="twitch-channel"
-          class="input twitch-input"
-          type="text"
-          placeholder="канал twitch"
-          autocomplete="off"
-          autocapitalize="off"
-          spellcheck="false"
-          aria-label="канал twitch"
-        />
-        <button id="twitch-btn" class="btn btn-outline" type="submit">
-          подключить
-        </button>
-      </form>
-
-      <section class="sound-settings" id="sound-settings" aria-label="звук">
+      <section class="sound-settings" id="sound-settings" aria-label="настройки">
         <label class="sound-check">
           <input type="checkbox" id="win-sound-enabled" checked />
           <span>звук при угадывании</span>
@@ -84,6 +51,20 @@
             aria-valuenow="50"
           />
           <span class="sound-volume-value" id="sound-volume-value">50%</span>
+        </label>
+        <label
+          class="sound-check"
+          id="hands-off-wrap"
+          title="Когда чат угадывает слово, через 10 секунд начинается новая случайная игра.
+
+Команды для модераторов, владельца канала:
+!context_hint — подсказка
+!context_restart — сдаться, показать слово
+!context_reload — перезагрузить страницу
+!context_reset_stats — сбросить статистику победителей"
+        >
+          <input type="checkbox" id="hands-off" />
+          <span>Автоматически начинать следующий раунд (автоигра)</span>
         </label>
       </section>
 
@@ -241,6 +222,42 @@
       </footer>
     </main>
 
+    <div class="modal-overlay" id="chat-modal" hidden>
+      <div
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="chat-modal-title"
+      >
+        <div class="modal-head">
+          <h2 class="modal-title" id="chat-modal-title">чаты</h2>
+          <button
+            id="chat-modal-close"
+            class="btn btn-ghost"
+            type="button"
+            aria-label="закрыть"
+          >
+            закрыть
+          </button>
+        </div>
+
+        <p class="modal-hint">
+          Подключите сразу несколько чатов, если идёт рестрим. Можно вставить
+          ссылку на стрим — платформа определится сама.
+        </p>
+
+        <div class="chat-rows" id="chat-rows"></div>
+        <div class="chat-connect-actions">
+          <button id="chat-connect-all" class="btn btn-solid" type="button">
+            подключить все
+          </button>
+          <button id="chat-disconnect-all" class="btn btn-outline" type="button">
+            отключить все
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div class="modal-overlay" id="obs-modal" hidden>
       <div
         class="modal"
@@ -261,24 +278,17 @@
         </div>
 
         <p class="modal-hint">
-          Добавьте адрес ниже как «Источник → Браузер» в OBS. Виджет сам
-          подключится к чату, загадает слово, дождётся отгадки, покажет
-          победителей и запустит новый раунд.
+          Добавьте адрес ниже как «Источник → Браузер» в OBS. Виджет подключится
+          ко всем заполненным чатам сразу — удобно, если идёт рестрим на
+          несколько платформ. Можно вставить ссылку на стрим: платформа
+          определится сама. Своё слово в виджете загадывать возможности нет.
         </p>
 
         <div class="obs-fields">
-          <label class="obs-field">
-            <span class="obs-field-label">канал twitch</span>
-            <input
-              id="obs-channel"
-              class="input"
-              type="text"
-              placeholder="имя канала"
-              autocomplete="off"
-              autocapitalize="off"
-              spellcheck="false"
-            />
-          </label>
+          <div class="obs-field">
+            <span class="obs-field-label">чаты</span>
+            <div class="chat-rows obs-chat-rows" id="obs-chat-rows"></div>
+          </div>
 
           <label class="obs-check">
             <input type="checkbox" id="obs-sound" />
@@ -363,6 +373,7 @@
       </div>
     </div>
 
-    <script src="/app.js"></script>
+    <script src="/chat-client.js?v=20260902h"></script>
+    <script src="/app.js?v=20260902h"></script>
   </body>
 </html>

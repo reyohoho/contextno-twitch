@@ -65,7 +65,7 @@ body {
 
 .header {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
@@ -74,9 +74,19 @@ body {
   margin-bottom: 20px;
 }
 
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
 .header-actions {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
 }
 
 .title {
@@ -188,6 +198,9 @@ body {
   font-size: 1.2em;
   font-weight: 900;
   letter-spacing: 0.02em;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .winners-boards {
@@ -251,6 +264,12 @@ body {
 .session-nick {
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-weight: 600;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.session-nick .nick-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -508,6 +527,13 @@ body {
   font-family: "JetBrains Mono", ui-monospace, monospace;
   letter-spacing: 0.02em;
   line-height: 1.1;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.row .nick .chat-platform-icon {
+  width: 12px;
+  height: 12px;
 }
 
 .row .rank {
@@ -603,6 +629,12 @@ body {
 .sound-check span {
   color: var(--fg);
 }
+.sound-check[hidden] {
+  display: none;
+}
+#hands-off-wrap {
+  flex: 1 1 100%;
+}
 
 .sound-volume {
   display: inline-flex;
@@ -633,18 +665,135 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.twitch {
+.chat-dock {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.chat-dock-item {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--line-strong);
+  background: var(--soft);
+  color: var(--fg);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.chat-dock-item:hover,
+.chat-dock-item:focus-visible {
+  border-color: var(--fg);
+  background: var(--soft-2);
+  outline: none;
+}
+.chat-dock-item.connecting {
+  border-color: var(--muted);
+}
+.chat-dock-item.connected {
+  border-color: #4ade80;
+}
+.chat-dock-item .chat-platform-icon {
+  width: 18px;
+  height: 18px;
+}
+.chat-dock-item .chat-led {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+}
+.chat-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.chat-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
+  min-width: 0;
+}
+.chat-row-label {
+  width: 72px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+.chat-row-btn {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  min-width: 112px;
+}
+.chat-connect-actions {
+  display: flex;
   flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
 }
-.twitch-input {
+.chat-connect-actions .btn {
+  flex: 0 0 auto;
+}
+.obs-chat-rows {
+  width: 100%;
+}
+.obs-chat-rows .chat-row-label {
+  width: 78px;
+}
+.chat-platform-badge {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--fg);
+}
+.chat-platform-icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: inherit;
+}
+.chat-platform-badge .chat-platform-icon {
+  width: 16px;
+  height: 16px;
+}
+.chat-platform-icon svg,
+.chat-platform-icon img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.chat-platform-icon img {
+  object-fit: cover;
+  border-radius: 2px;
+}
+.chat-platform-icon.is-twitch {
+  color: #9146ff;
+}
+.chat-platform-icon.is-vkvideo {
+  color: #0077ff;
+}
+.chat-platform-icon.is-kick {
+  color: #53fc18;
+}
+.chat-platform-icon.is-wtv {
+  color: #ffffff;
+}
+
+.chat-input {
   flex: 1 1 160px;
-  min-width: 120px;
+  min-width: 0;
 }
-.twitch-led {
+.chat-led {
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -652,15 +801,24 @@ body {
   flex-shrink: 0;
   transition: background 0.2s;
 }
-.twitch-led.connecting {
+.chat-led.connecting {
   background: var(--muted);
-  animation: twitch-pulse 1s ease-in-out infinite;
+  animation: chat-pulse 1s ease-in-out infinite;
 }
-.twitch-led.connected {
+.chat-led.connected {
   background: #4ade80;
   box-shadow: 0 0 6px rgba(74, 222, 128, 0.7);
 }
-@keyframes twitch-pulse {
+@media (max-width: 640px) {
+  .chat-row-label {
+    display: none;
+  }
+  .chat-row-btn {
+    min-width: 0;
+    padding: 8px 10px;
+  }
+}
+@keyframes chat-pulse {
   0%,
   100% {
     opacity: 0.4;
