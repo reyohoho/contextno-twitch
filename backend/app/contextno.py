@@ -198,9 +198,14 @@ def resolve_challenge(
     if secret:
         if not author_id:
             raise ValueError("author_id обязателен при загадывании своего слова")
-        r = client.publish(author_id.strip(), secret.strip().lower())
+        word = secret.strip().lower()
+        r = client.publish(author_id.strip(), word)
         if r.get("error"):
             raise WordNotFoundError(r.get("message") or "слово не найдено в словаре")
+        # upstream accepts some words (e.g. "тарзанка") but ranks every guess as 0
+        check = client.score(r["challenge_id"], word, "unofficial")
+        if check.get("distance") != 1:
+            raise WordNotFoundError("сервис не поддерживает это слово, загадайте другое")
         return {
             "id": r["challenge_id"],
             "name": r.get("challenge_name") or "пользовательская",

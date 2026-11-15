@@ -488,7 +488,12 @@ async function sendGuess(word, nick = null, platform = null) {
     }
 
     if (r.rank === 0) {
-      startGame();
+      // upstream returns 0 for a broken challenge: a random one can be rerolled, a custom word cannot
+      if (state.gameKind === "custom") {
+        setStatus(`сервис не может посчитать «${word}» для этого слова (место 0) · загадайте другое`, "error");
+      } else {
+        startGame();
+      }
       return;
     }
 
